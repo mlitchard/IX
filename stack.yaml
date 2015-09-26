@@ -1,5 +1,5 @@
 flags: {}
 packages:
 - '.'
-extra-deps: [psqueues-0.2.0.2,reactive-banana-0.8.1.2]
+extra-deps: [pqueue-1.3.0,reactive-banana-0.9.0.0]
 resolver: lts-2.19

@@ -1,5 +1,42 @@
 module DataStructures.Composite
-   () where
+   ( ResourceMap (..)
+   , Resource (..)
+   , AgentMap(..)
+   , DAgentMap(..)
+   , SubAgentMap(..)
+   , GameMaps (..)
+   , UAC(..)
+   , PlayerCommand (..)
+   , VAC(..)
+   , Agent(..)
+   , Message (..)
+   , Ship (..)
+   , ShipParts (..)
+   , ShipStats (..)
+   , Planet (..)
+   , ToPlanet (..)
+   , FromPlanet (..)
+   , HyperSpace (..)
+   , LocationMap (..)
+   , Location (..)
+   , PlanetMap (..)
+   , UPlanetComm (..)
+   , HSpaceComm (..)
+   , PCommand (..)
+   , HCommand (..)
+   , Result (..)
+   , Command (..)
+   , CommandError (..)
+   , ShipChange (..)
+   , PlanetNameWrapper (..)
+   , GameState (..)
+   , GameData (..)
+   , InitMaps (..)
+   , Parameters (..)
+   , ActionPartitions (..)
+   , Buffer
+   , DieRolls)
+   where
 
 import ClassyPrelude
 import Control.Concurrent.STM.TChan (TChan)
@@ -32,6 +69,8 @@ data GameData = GameData {
   ,commandChan :: TChan [UAC]
   ,gameState   :: TChan GameState
 }
+type Buffer t   = Event t [VAC]
+type DieRolls t = Behavior t [PInt]
 
 data LocationMap = LocationMap ![(AID,Location)] deriving Show
 data ResourceMap = ResourceMap ![(ResourceName,Resource)] deriving Show
@@ -45,8 +84,20 @@ data DAgentMap = DAgentMap SubAgentMap
                | ClearOut -- used when eGameState happens to clear out message
                   deriving Show
 
+data PlanetNameWrapper = FP_W FromPlanetName
+                       | TP_W ToPlanetName 
+                          deriving (Ord,Eq,Show)
+
 data Location = Location (Either (PlanetName,PTransitionState)
                                  (HyperSpace,HTransitionState)) deriving Show
+
+data LData = AgentKey  AID ToPlanet FromPlanet
+           | AgentList [(AID,Agent)] 
+              deriving Show
+
+
+newtype ToPlanet       = ToPlanet (ToPlanetName, Planet) deriving Show
+newtype FromPlanet     = FromPlanet (FromPlanetName, Planet) deriving Show
 
 data Planet = Planet {
    neighbors :: ![(PlanetName,Distance)]
@@ -56,8 +107,8 @@ data Planet = Planet {
 } deriving Show
 
 data HyperSpace = HyperSpace {
-   destination       :: PlanetName
-  ,origin            :: PlanetName
+   destination       :: ToPlanetName
+  ,origin            :: FromPlanetName
   ,totalDistance     :: PInt
   ,distanceTraversed :: PInt
 } deriving Show -- Agents are not aware of other
@@ -79,7 +130,10 @@ data Agent = Player { aName    :: Name
            | Dead Name
               deriving Show
 
-newtype Ship = Ship (ShipParts ,ShipStats) deriving Show
+data Ship = Ship {
+    ship_parts :: ShipParts 
+   ,ship_stats :: ShipStats
+} deriving Show
 
 data ShipParts = ShipParts {
    engine     :: Engine
@@ -92,16 +146,18 @@ data ShipParts = ShipParts {
 
 data ShipStats = ShipStats {
    hull_strength :: HullStrength
-  ,cargo         :: [(ResourceName,Int)]
+  ,cargo         :: [(ResourceName,PInt)]
   ,fuel          :: Fuel
   ,repairing     :: Bool
   ,warp_speed    :: Maybe WarpSpeed
 } deriving Show
 
-data Message = PlanetLoc PlanetName Ship
-             | InHyp Location Ship
-             | Onward ToPlanet FromPlanet
-             | JustLandedOn ToPlanet
+
+data ModAgent = ModAgent AID Agent 
+data Message = PlanetLoc PlanetName 
+             | InHyp Location
+             | Onward ToPlanetName FromPlanetName
+             | JustLandedOn PlanetName
              | AttackMSG (Either AttackedMSG BeenAttackedMSG) AID DieRoll
              | LocalMarketData PlanetName [(ResourceName,Resource)]
              | YouDeadSon
@@ -112,7 +168,7 @@ data Message = PlanetLoc PlanetName Ship
 data GameMaps t = GameMaps {
    bAMap  :: Behavior t AgentMap
   ,beLMap :: (Behavior t LocationMap, Event t ())
-  ,bRMap  :: (Behavior t ResourceMap)
+  ,bRMap  :: Behavior t ResourceMap
   ,bPMap  :: Behavior t PlanetMap
 }
 
@@ -134,7 +190,7 @@ data VAC = VAC PlayerCommand deriving (Eq,Ord,Show)
 -- Unvalidated Agent Command
 data UAC = UAC PlayerCommand deriving (Show)
 
-data Command = Move PlanetName
+data Command = Move ToPlanetName
              | Zap AID
              | Look
              | Market
@@ -156,12 +212,12 @@ data Result = Looked (Either PlanetName Location) Ship
             | CError CommandError
 
 data ActionPartitions t = ActionPartitions {
-   moveAction :: Event t (Maybe (AID,PlanetName))
+   moveAction :: Event t (Maybe (AID,ToPlanetName))
   ,psAction   :: Event t (AID,Result)
   ,hsAction   :: Event t (AID,Result)
 }
 
-data CommandError = CantMoveTo ToPlanet
+data CommandError = CantMoveTo ToPlanetName
                   | SetSpeedFirst
                   | SpeedIsSet
                   | CantZap AID
