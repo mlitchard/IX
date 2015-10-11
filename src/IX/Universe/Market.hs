@@ -10,21 +10,25 @@ module IX.Universe.Market
 import DataStructures.Atomic
 import DataStructures.Composite
 import Data.Maybe (catMaybes)
-import Safe (lookupJustNote)
+import Safe (fromJustNote)
 import qualified Data.List as DL
 import Data.List (find)
 import Data.List.Utils (addToAL)
 import Data.Text (unpack)
+import qualified Data.Map as M
+
 import IX.Universe.Utils (setMessage)
 
 nextMarketRolls :: ResourceMap -> [PInt] -> [PInt]
-nextMarketRolls (ResourceMap rMap) = drop (length rMap)
+nextMarketRolls (ResourceMap rMap)  rolls = drop (M.size rMap) rolls
 
 adjustMarket :: [PInt] -> ResourceMap -> ResourceMap
 adjustMarket dRolls (ResourceMap rMap) =
-   let currentRolls = take (length rMap) dRolls
-       matchedRolls = zip rMap currentRolls
-   in ResourceMap $ map adjustLocalMarket matchedRolls
+   let currentRolls = take (M.size rMap) dRolls
+       matchedRolls = zip rMap' currentRolls
+   in ResourceMap $ M.fromList (map adjustLocalMarket matchedRolls)
+   where
+     rMap' = M.toList rMap
 
 adjustLocalMarket ((rName,res),roll) =
    case stability res of
@@ -67,9 +71,10 @@ evalMarket :: PlanetName ->
 evalMarket p_name planet (ResourceMap r_map) =
    (MarketData p_name r_data)
    where
+      r_map' = M.toList r_map
       r_list = resources planet
-      r_data = zip r_list $ catMaybes $ map (flip lookup r_map) r_list
-
+      r_data = zip r_list $ catMaybes $ map (flip lookup r_map') r_list
+      
 evalCommerce :: CommerceAction             ->
                 Agent                      ->
                 (ResourceName,ResourceMap) ->
@@ -117,7 +122,7 @@ evalCommerce c_action agt (r_name,(ResourceMap r_map)) amt (p_name,planet') =
                Nothing   -> PInt 0
 
       cant_afford  = CError $ CantAfford r_name c_res creds
-      res = lookupJustNote resFail r_name r_map
+      res = fromJustNote resFail (M.lookup r_name r_map)
       creds = credits agt
       resFail = "evalCOmmerce failed to find " ++
                 show r_name                    ++
@@ -128,9 +133,9 @@ marketToAgt :: AgentMap -> (AID,Result) -> Maybe DAgentMap
 marketToAgt (AgentMap a_map) (aid@(AID aid'), MarketData p_name local_res) =
    Just $ DAgentMap $ mkAgent (aid,o_agent) (LocalMarketData p_name local_res)
    where
-     o_agent = lookupJustNote aAgentFail aid a_map
+     o_agent = fromJustNote aAgentFail (M.lookup aid a_map)
      mkAgent :: (AID, Agent) -> Message -> SubAgentMap
-     mkAgent (aid'', o_agent ) message' = SubAgentMap [(aid'',n_agent)]
+     mkAgent (aid'', o_agent ) message' = SubAgentMap (M.singleton aid'' n_agent)
         where
           n_agent = setMessage [message'] o_agent
      aAgentFail = "lookToAgt failed to match aid " ++ (unpack aid')
@@ -141,18 +146,16 @@ commerceToAgt :: AgentMap     ->
                  (AID,Result) ->
                  Maybe DAgentMap
 commerceToAgt (AgentMap a_map) (aid,(Commerce c_action (r_name,res) amt)) =
-   let agt = lookupJustNote aAgentFail aid a_map
+   let agt = fromJustNote aAgentFail (M.lookup aid a_map)
    in case c_action of
          BuyR cost     ->
-            Just        $
+            Just        $ 
             DAgentMap   $
-            SubAgentMap $
-            [(aid,buy agt cost)]
+            SubAgentMap (M.singleton aid (buy agt cost)) -- code smell
          SellR revenue ->
             Just        $
             DAgentMap   $
-            SubAgentMap $
-            [(aid,sell agt revenue)]
+            SubAgentMap (M.singleton aid (sell agt revenue)) -- code smell
    where
       buy agt cost =
          let agtLessCost = setCredits Subtract agt cost
@@ -167,7 +170,7 @@ commerceToAgt (AgentMap a_map) (aid,(Commerce c_action (r_name,res) amt)) =
               (BuyR _)  -> agt {ship = up_ship (+)}
               (SellR _) -> agt {ship = up_ship (-)}
          where
-            res_inv         = lookupJustNote resourceFail r_name c_inv
+            res_inv         = fromJustNote resourceFail (lookup r_name c_inv)
             c_inv           = cargo $ ship_stats'
             ship_stats'     = ship_stats (ship agt)
             up_inv  f       = addToAL c_inv r_name (res_inv `f` amt)

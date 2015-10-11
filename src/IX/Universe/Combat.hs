@@ -12,8 +12,8 @@ import Data.List (find)
 import qualified Data.List as DL
 import Control.Applicative ((<$>))
 import IX.Universe.Utils (setMessage,intToPInt)
-import Safe (lookupJustNote)
-
+import Safe (fromJustNote)
+import qualified Data.Map.Strict as Map
 
 --dmgToAgt
 -- Takes the result of a combat check
@@ -24,7 +24,9 @@ dmgToAgt :: AgentMap     ->
 dmgToAgt (AgentMap aMap') (aid, (Damage zapped dRoll zapRes)) =
    case zapRes of
       Hit zapDamage    ->
-         Just $ DAgentMap $ SubAgentMap [(aid,attackerAGT),(zapped,attackedAGT)]
+         Just      $ 
+         DAgentMap $ 
+         SubAgentMap (Map.fromList [(aid,attackerAGT),(zapped,attackedAGT)])
          where
             attackerAGT = setMessage youHit aAgent
             youHit      = [AttackMSG (Left YouHit) zapped dRoll]
@@ -48,7 +50,7 @@ dmgToAgt (AgentMap aMap') (aid, (Damage zapped dRoll zapRes)) =
       Miss dRoll' toHit ->
          Just      $
          DAgentMap $
-         SubAgentMap [(aid,attackerAGT),(zapped,attackedAGT)]
+         SubAgentMap (Map.fromList [(aid,attackerAGT),(zapped,attackedAGT)])
             where
                attackerAGT =
                   setMessage doneMissed aAgent
@@ -59,8 +61,8 @@ dmgToAgt (AgentMap aMap') (aid, (Damage zapped dRoll zapRes)) =
                failedAttack =
                   [AttackMSG (Right $ FailedAttackBy dRoll' toHit) aid dRoll']
    where
-      aAgent = lookupJustNote aAgentFail aid aMap'
-      zAgent  = lookupJustNote zaFail zapped aMap'
+      aAgent = fromJustNote aAgentFail (Map.lookup aid aMap')
+      zAgent  = fromJustNote zaFail (Map.lookup zapped aMap')
       aAgentFail = "dmgAgt failed to lookup acting agent in aMap" ++ (show aid)
       zaFail = "dmgToAgt failed to lookup " ++ (show zapped)
 dmgToAgt _ _ = Nothing
@@ -88,7 +90,7 @@ evalZap (aidATKD,agtATKD) agtATK pName dRoll (PlanetMap pMap') =
    let mTarget = join                  $
                  DL.find (== aidATKD) <$>
                  residents            <$>
-                 lookup pName pMap'
+                 Map.lookup pName pMap'
    in case mTarget of
         Just _
            | dRoll > toHit -> Damage aidATKD dRoll $ Hit (subtract wDMG)

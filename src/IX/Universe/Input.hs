@@ -6,7 +6,7 @@ module IX.Universe.Input
  ,orderUPComm
  ,evalPComm
  ,initAmap
- ,initLmaps
+ ,initLmap
  ,initPmap
  ,initRmap
  ) where
@@ -18,10 +18,11 @@ import IX.Universe.Market (evalMarket,evalCommerce)
 import IX.Universe.Combat (evalZap)
 import IX.Universe.Utils (intToPInt,getPlanet)
 
-import Safe (lookupJustNote)
+import Safe (fromJustNote)
 import Data.Either (partitionEithers)
 import Data.List (sortBy)
 import Data.Maybe (mapMaybe)
+import qualified Data.Map.Strict as M
 
 
 -- Not doing much right now. Will one day actually do something
@@ -36,7 +37,7 @@ toVAC _                = []
 -- used to prevent dead players of sending commands to the game
 agentExists :: AgentMap -> [UAC] -> Bool
 agentExists (AgentMap aMap') [UAC (PlayerCommand _ aid)] =
-   let mAGENT = lookup aid aMap'
+   let mAGENT = M.lookup aid aMap'
    in case mAGENT of
       (Just (Dead _)) -> False
       (Just _)        -> True
@@ -62,13 +63,13 @@ whichLoc (LocationMap lMap) vacs@(_:_) =
 
 whichLoc _ [] = (Nothing,Nothing)
 
-sortLoc :: VAC -> [(AID,Location)] -> Either PCommand HCommand
+sortLoc :: VAC -> M.Map AID Location -> Either PCommand HCommand
 sortLoc vac@(VAC (PlayerCommand  _ aid)) locs =
    case pLoc of
       Location (Left _)  -> Left $ PCommand vac
       Location (Right _) -> Right $ HCommand vac
    where
-      pLoc    = lookupJustNote locFail aid locs
+      pLoc    = fromJustNote locFail (M.lookup aid locs)
       locFail = "sortLoc couldn't find " ++
                 show aid                 ++
                 " in LocationMap\n"
@@ -86,7 +87,7 @@ evalPComm p_map
           r_map
           (dRoll:_)
           (p_name,(PCommand (VAC (PlayerCommand comm aid)))) =
-   let agt    = lookupJustNote agtFail aid a_map
+   let agt    = fromJustNote agtFail (M.lookup aid a_map)
    in case agt of
         (Dead _)                       ->
            Left $ (aid, CError $ ActionCancelledDueToBeingVeryDead)
@@ -122,7 +123,7 @@ evalPComm p_map
                Left $ (aid,doLook p_name agt)
 
             Zap aidATK           ->
-               let agtATK = lookupJustNote agtFail' aidATK a_map
+               let agtATK = fromJustNote agtFail' (M.lookup aidATK a_map)
                    res    = evalZap (aidATK,agtATK) agt p_name dRoll p_map
                in Left $ (aid,res)
                where
@@ -141,9 +142,9 @@ evalPComm p_map
         "\n"
 orderUPComm :: LocationMap -> UPlanetComm -> [(PlanetName,PCommand)]
 orderUPComm (LocationMap lMap) (UPlanetComm pCommands) =
-   sortBy sortComms $ map (planetTag pSide) pCommands
-   where
-     pSide = mapMaybe findPlanetBound lMap
+  sortBy sortComms $ map (planetTag pSide) pCommands
+  where
+    pSide = M.mapMaybeWithKey findPlanetBound lMap
 
 sortComms :: (PlanetName,PCommand)  ->
              (PlanetName, PCommand) ->
@@ -154,23 +155,22 @@ sortComms (p1,_) (p2,_)
    | p1 == p2 = EQ
 sortComms _ _ = EQ
 
-planetTag :: [(AID,PlanetName)] -> 
-             PCommand                  ->
+planetTag :: M.Map AID PlanetName -> 
+             PCommand             ->
              (PlanetName,PCommand)
 planetTag pLocs pc@(PCommand (VAC (PlayerCommand _ aid))) =
-   let pName = case lookup aid pLocs of
-                  (Just p) -> p
-                  Nothing  -> error $ orderUPCommERR pName
-   in (pName,pc)
-        where
-           orderUPCommERR :: PlanetName -> String
-           orderUPCommERR pName = "orderUPComm couldn't find planet " ++
-                                  show pName
+  let pName = fromJustNote orderUPCommERR (M.lookup aid pLocs)
+  in (pName,pc)
+    where
+      orderUPCommERR = 
+        "orderUPComm couldn't find  " ++
+        (show aid)                    ++
+        "in map of planet bound players"
 
 
-findPlanetBound :: (AID,Location) -> Maybe (AID,PlanetName)
-findPlanetBound (aid, Location (Left (pName,_))) = Just (aid,pName)
-findPlanetBound _                                = Nothing
+findPlanetBound :: AID -> Location -> Maybe PlanetName
+findPlanetBound aid (Location (Left (pName,_))) = Just pName
+findPlanetBound _ _                             = Nothing
 
 doLook :: PlanetName -> Agent -> Result
 doLook p_name agt = Looked (Left p_name) $ ship agt
@@ -183,17 +183,18 @@ doLook p_name agt = Looked (Left p_name) $ ship agt
 
 
 
-initAmap :: [(Name,AID)] -> AgentMap
-initAmap naMap' = AgentMap $ map initAMap' naMap'
+initAmap :: M.Map AID ClientName -> AgentMap
+initAmap naMap' = AgentMap $ M.map initAMap' naMap'
    where
-     initAMap' :: (Name,AID) -> (AID,Agent)
-     initAMap' (name,aid) = let agent = Player { aName    = name
-                                               , msg      = [PlanetLoc Vulcan]
-                                               , ship     = mkShip
-                                               , credits  = 50000
-                                               , debt     = 50000
-                                               , isDead   = False}
-                            in (aid,agent)
+     initAMap' name = 
+       Player {
+           aName    = name
+         , msg      = [PlanetLoc Vulcan]
+         , ship     = mkShip
+         , credits  = 50000
+         , debt     = 50000
+         , isDead   = False
+       }
      mkShip = Ship shipParts shipStats
         where
            shipParts = ShipParts {
@@ -213,95 +214,91 @@ initAmap naMap' = AgentMap $ map initAMap' naMap'
            }
      mkCargo = map (flip (,) 0) [FinestGreen .. InterzoneSpecial]
 
-initLmaps :: [AID] -> LocationMap
-initLmaps aids =
-   LocationMap $ map mkLMap aids
-   where
-     mkLMap :: AID -> (AID,Location)
-     mkLMap aid = (aid, Location $ Left (pn,PlanetSide))
-     pn         = Vulcan
+initLmap :: [AID] -> LocationMap
+initLmap aids =
+  LocationMap $ M.fromList (map mkLMap aids)
+  where
+    mkLMap :: AID -> (AID,Location)
+    mkLMap aid = (aid, Location $ Left (pn,PlanetSide))
+    pn         = Vulcan
 
 initPmap :: [AID] -> PlanetMap
-initPmap aids = PlanetMap $ zip [Vulcan .. VoidlessVoid] planets
-   where
-      planets = [p0,p1,p2,p3,p4,p5]
-      p0      = Planet {
-         neighbors = [(Mongo,500),(Tatooine,5000)]
-        ,refueling = False
-        ,residents = aids
-        ,resources = [FinestGreen,BabyBlue]
-      }
-      p1      = Planet {
-         neighbors = [(Vulcan,500),(Arakis,5000)]
-        ,refueling = False
-        ,residents = []
-        ,resources = [SubstanceD,Melange]
-      }
-      p2      = Planet {
-         neighbors = [(Mongo,5000),(Dantooine,5000)]
-        ,refueling = True
-        ,residents = []
-        ,resources = [BabyBlue,InterzoneSpecial]
-      }
-      p3      = Planet {
-         neighbors = [(Arakis,5000),(Tatooine,5000)]
-        ,refueling = False
-        ,residents = []
-        ,resources = [Melange,FinestGreen]
-      }
-      p4      = Planet {
-         neighbors = [(Dantooine,5000),(Vulcan,5000)]
-        ,refueling = True
-        ,residents = []
-        ,resources = [SubstanceD,FinestGreen]
-      }
-      p5      = Planet {
-         neighbors = []
-        ,residents = []
-        ,resources = []
-        ,refueling = True
-      }
+initPmap aids = PlanetMap $ M.fromList (zip [Vulcan .. VoidlessVoid] planets)
+  where
+    planets = [p0,p1,p2,p3,p4,p5]
+    p0      = Planet {
+                  neighbors = [(Mongo,500),(Tatooine,5000)]
+                , refueling = False
+                , residents = aids
+                , resources = [FinestGreen,BabyBlue]
+              }
+    p1      = Planet {
+                  neighbors = [(Vulcan,500),(Arakis,5000)]
+                , refueling = False
+                , residents = []
+                , resources = [SubstanceD,Melange]
+              }
+    p2      = Planet {
+                  neighbors = [(Mongo,5000),(Dantooine,5000)]
+                , refueling = True
+                , residents = []
+                , resources = [BabyBlue,InterzoneSpecial]
+              }
+    p3      = Planet {
+                  neighbors = [(Arakis,5000),(Tatooine,5000)]
+                , refueling = False
+                , residents = []
+                , resources = [Melange,FinestGreen]
+              }
+    p4      = Planet {
+                  neighbors = [(Dantooine,5000),(Vulcan,5000)]
+                , refueling = True
+                , residents = []
+                , resources = [SubstanceD,FinestGreen]
+              }
+    p5      = Planet {
+                  neighbors = []
+                , residents = []
+                , resources = []
+                , refueling = True
+              }
 
 initRmap :: ResourceMap
-initRmap = ResourceMap $ zip [FinestGreen .. InterzoneSpecial] resources'
-   where
-      resources' = [r0,r1,r2,r3,r4]
-      r0         = Resource {
-         highestPrice = 400
-        ,lowestPrice  = 20
-        ,currentPrice = 100
-        ,stability    = Stable 5000
-      }
+initRmap = ResourceMap $ M.fromList (zip [FinestGreen .. InterzoneSpecial] resources')
+  where
+    resources' = [r0,r1,r2,r3,r4]
+    r0         = Resource {
+                     highestPrice = 400
+                   , lowestPrice  = 20
+                   , currentPrice = 100
+                   , stability    = Stable 5000
+                 }
 
-      r1        = Resource {
-         highestPrice = 100
-        ,lowestPrice  = 1
-        ,currentPrice = 20
-        ,stability    = Stable 5000
-      }
+    r1        = Resource {
+                    highestPrice = 100
+                  , lowestPrice  = 1
+                  , currentPrice = 20
+                  , stability    = Stable 5000
+                }
 
-      r2        = Resource {
-         highestPrice = 1000
-        ,lowestPrice  = 200
-        ,currentPrice = 500
-        ,stability    = Stable 5000
-      }
+    r2        = Resource {
+                    highestPrice = 1000
+                  , lowestPrice  = 200
+                  , currentPrice = 500
+                  , stability    = Stable 5000
+                }
 
-      r3        = Resource {
-         highestPrice = 10000
-        ,lowestPrice  = 1000
-        ,currentPrice = 5000
-        ,stability    = Stable 5000
-      }
+    r3        = Resource {
+                    highestPrice = 10000
+                  , lowestPrice  = 1000
+                  , currentPrice = 5000
+                  , stability    = Stable 5000
+                }
 
-      r4        = Resource {
-         highestPrice = 100
-        ,lowestPrice  = 1
-        ,currentPrice = 20
-        ,stability    = Stable 5000
-      }
+    r4        = Resource {
+                    highestPrice = 100
+                  , lowestPrice  = 1
+                  , currentPrice = 20
+                  , stability    = Stable 5000
+                }
 
-      p5      = Planet {neighbors = []
-                       ,residents = []
-                       ,resources = []
-                       ,refueling = True}

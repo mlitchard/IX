@@ -20,13 +20,14 @@ import DataStructures.Composite
 import IX.Universe.Utils (intToPInt)
 
 import Data.List (foldl')
-import Safe (lookupJustNote)
+import Safe (fromJustNote)
 import Data.List.Utils (delFromAL)
 import Control.Applicative ((<$>))
 import Control.Monad (join)
 import Data.Maybe (catMaybes)
-
+import qualified Data.Map as M
 import Debug.Trace
+
 manageTravel :: PlanetMap              ->
                 AgentMap               ->
                 Maybe (AID,ToPlanetName) ->
@@ -36,56 +37,52 @@ manageTravel (pMap)
              _
              (Just (aid,tpn))
              (LocationMap lMap) =
-   let upLmap = LocationMap $ map (updateLocationMap aid) lMap
+--   let upLmap = LocationMap $ M.map (updateLocationMap aid) lMap
+--   in ((),upLmap)
+   let upLmap = LocationMap $ M.insert aid newLoc lMap 
    in ((),upLmap)
    where
-     updateLocationMap :: AID -> (AID,Location) -> (AID,Location)
-     updateLocationMap _ loc@(_,(Location (Right (_, _)))) = loc
-     updateLocationMap 
-        aid' 
-        loc@(mAid,(Location (Left (pn,_))))
-        | (aid' == mAid) = (aid',(Location $ Right $ (hSpace, Launched)))
-        | otherwise     = loc
-
-       where
-         hSpace = HyperSpace {destination       = tpn
-                             ,origin            = fpn
-                             ,totalDistance     = distanceTo
-                             ,distanceTraversed = 0 :: PInt
-                             }
-         distanceTo = getDistanceTo tpn $
-                      FromPlanet (fpn,fp)
-
-         fp  = getPlanet pn pMap
-         fpn = FromPlanetName pn
+     ((Location (Left (pn, _)))) = fromJustNote aidNotFound (M.lookup aid lMap)
+     newLoc = Location $ Right $ (hSpace, Launched)
+     hSpace = HyperSpace {
+       destination       = tpn
+      ,origin            = fpn
+      ,totalDistance     = distanceTo
+      ,distanceTraversed = 0 :: PInt
+     }
+     distanceTo = getDistanceTo tpn $ FromPlanet (fpn,fp)
+     fp         = getPlanet pn pMap
+     fpn        = FromPlanetName pn
+     aidNotFound = "manageTravel failed to find " ++ 
+                   (show aid)                     ++
+                   "in LocationMap\n"
  
 manageTravel _      -- No need for a PlanetMap 
             (AgentMap aMap)
             Nothing -- a tick must have happened if this matches
             (LocationMap lMap)  =
    (,) ()
-   (LocationMap                 $
-   map (updateLocationMap aMap) $
-   foldl' removeDead lMap aMap)
-      where
-         removeDead :: [(AID,Location)] -> (AID,Agent) -> [(AID,Location)]
-         removeDead lmap' (aid,(Dead _)) = delFromAL lmap' aid
-         removeDead lmap' _              = lmap'
+   (LocationMap                          $
+   M.mapWithKey (updateLocationMap aMap) $
+   M.foldlWithKey removeDead lMap aMap)
 
-         updateLocationMap :: [(AID,Agent)] -> (AID,Location) -> (AID,Location)
-         updateLocationMap _ (aid, (Location (Left ( pName,Landed)))) =
-            (aid,(Location (Left (pName,PlanetSide))))
-         updateLocationMap _ loc@(_,(Location (Left (_,PlanetSide)))) =
+      where
+         removeDead lmap' aid (Dead _) = M.delete aid lmap'
+         removeDead lmap' _ _          = lmap'
+
+         updateLocationMap _ _ (Location (Left ( pName,Landed))) =
+            (Location (Left (pName,PlanetSide)))
+         updateLocationMap _ _ loc@(Location (Left (_,PlanetSide))) =
             loc
-         updateLocationMap a_map (aid,(Location (Right (hSpace,tState)))) =
+         updateLocationMap a_map aid (Location (Right (hSpace,tState))) =
             let (ToPlanetName dest) = destination hSpace
                 tDist               = totalDistance hSpace
                 traversed           = distanceTraversed hSpace
             in case tState of
-              Launched     -> (aid,updatedHSpace)
+              Launched     -> updatedHSpace
               InHyperSpace -> if (tDist == traversed)
-                              then (aid,landed)
-                              else (aid,updatedHSpace)
+                              then landed
+                              else updatedHSpace
                               where
                                  landed = (Location $ Left $ (dest,Landed))
               where
@@ -100,15 +97,15 @@ manageTravel _      -- No need for a PlanetMap
                              warp_speed        <$>
                              ship_stats        <$>
                              ship              <$>
-                             lookup aid a_map
+                             M.lookup aid a_map
                                
       
 
 
-evalHyp :: [(AID,Location)] -> [(AID,Agent)] -> HCommand -> (AID,Result)
-evalHyp l_map' a_map' (HCommand (VAC (PlayerCommand comm aid))) =
-   let hyp_data = lookupJustNote locFail aid l_map'
-       ship'    = ship $ lookupJustNote agtFail aid a_map'
+evalHyp :: M.Map AID Location -> M.Map AID Agent -> HCommand -> (AID,Result)
+evalHyp l_map a_map (HCommand (VAC (PlayerCommand comm aid))) =
+   let hyp_data = fromJustNote locFail (M.lookup aid l_map)
+       ship'    = ship (fromJustNote agtFail (M.lookup aid a_map))
        res = case comm of
                 Move pName -> CError (CantMoveTo $ pName)
                 Zap aid'   -> CError (CantZap aid')
@@ -136,9 +133,9 @@ evalSetSpeed warp_speed (Ship (ShipParts {engine = engine'}) _)
       w_speed = fromEnum warp_speed
       e_power = fromEnum engine'
 
-evalHypComm :: LocationMap -> AgentMap -> HSpaceComm -> [(AID,Result)]
+evalHypComm :: LocationMap -> AgentMap -> HSpaceComm -> M.Map AID Result
 evalHypComm (LocationMap l_map) (AgentMap a_map) (HSpaceComm hCommands) =
-   map (evalHyp l_map a_map) hCommands
+   M.fromList (map (evalHyp l_map a_map) hCommands)
 
 
 evalMove aid agt ((ToPlanet (tpn@(ToPlanetName pn),_)), fpn) (PlanetMap pMap') =
@@ -152,7 +149,7 @@ evalMove aid agt ((ToPlanet (tpn@(ToPlanetName pn),_)), fpn) (PlanetMap pMap') =
                 join       $
                 lookup pn <$>
                 neighbors <$>
-                lookup fpn pMap'
+                M.lookup fpn pMap'
          in case mDest of
                      Just _  -> Right $ (aid,tpn)
                      Nothing -> Left  $ (aid,resultErr')
@@ -161,22 +158,22 @@ evalMove aid agt ((ToPlanet (tpn@(ToPlanetName pn),_)), fpn) (PlanetMap pMap') =
 
 commTransitions :: LocationMap -> Maybe DAgentMap
 commTransitions (LocationMap lMap) =
-   eIsN $ LocationUpdate $ catMaybes $ map commTransitions' lMap
+   eIsN $ LocationUpdate $ M.mapMaybe commTransitions' lMap
    where
-     commTransitions' :: (AID,Location) -> Maybe (AID,Message)
-     commTransitions' (aid, (Location (Left (tpn, Landed)))) =
-        Just (aid,JustLandedOn tpn)
+     commTransitions' :: Location -> Maybe Message
+     commTransitions' (Location (Left (tpn, Landed))) =
+        Just (JustLandedOn tpn)
 
-     commTransitions' (aid,(Location (Right (hSpace,Launched)))) =
+     commTransitions' (Location (Right (hSpace,Launched))) =
         let fpn    = origin hSpace
             tpn    = destination hSpace
             onward = Onward tpn fpn
-        in Just (aid,onward)
+        in Just onward
 
      commTransitions' _ = Nothing
 
      eIsN :: DAgentMap -> Maybe DAgentMap
-     eIsN (LocationUpdate []) = Nothing
+--     eIsN (LocationUpdate []) = Nothing
      eIsN lu@(LocationUpdate _) = Just lu
      eIsN _ = Nothing
 
@@ -184,13 +181,13 @@ changeShip :: AgentMap     ->
               (AID,Result) ->
               Maybe DAgentMap
 changeShip (AgentMap a_map) (aid, (ChangeShip change)) =
-   let agt = lookupJustNote aAgentFail aid a_map
+   let agt = fromJustNote aAgentFail (M.lookup aid a_map)
        res = case change of
                 (WSpeed w_speed) ->
                    setWarpSpeed w_speed agt
                 Repairing        ->
                    setRepairField True agt
-   in Just $ DAgentMap $ SubAgentMap $ [(aid,res)]
+   in Just $ DAgentMap $ SubAgentMap $ M.singleton aid res
    where
       aAgentFail = "changeShip failed to match aid " ++ (show aid)
 changeShip _ _ = Nothing
@@ -202,21 +199,21 @@ removeDead lmap' (aid,(Dead _)) = delFromAL lmap' aid
 removeDead lmap' _              = lmap'
 ----------------------- Getters and Setters --------------------
 
-getName :: Agent -> Name
+getName :: Agent -> ClientName
 getName (Player {aName = name}) = name
 getName (Dead name)             = name
 
 getDistanceTo :: ToPlanetName ->
                  FromPlanet   ->
-                 PInt
+                 Distance
 getDistanceTo (ToPlanetName tpn) (FromPlanet ((FromPlanetName fpn),fp)) =
-   lookupJustNote neighborFail tpn $ neighbors fp
+   fromJustNote neighborFail (lookup tpn (neighbors fp))
    where
      neighborFail = show tpn ++ " should have been a neighbor of " ++ show fpn
 
 getPlanet :: PlanetName -> PlanetMap -> Planet
 getPlanet p_name (PlanetMap p_map) =
-   lookupJustNote noPlanet p_name p_map
+   fromJustNote noPlanet (M.lookup p_name p_map)
       where
          noPlanet = "getPlanet failed to find "          ++
                     "the following planet in PlanetMap " ++

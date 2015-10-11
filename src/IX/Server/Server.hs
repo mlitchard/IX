@@ -1,316 +1,190 @@
-module IX.Server.Server 
-   (server
-   ,port) where
+{-# LANGUAGE OverloadedStrings, RecordWildCards, LambdaCase #-}
 
-import Network.Socket (socket
-                      ,Family ( AF_INET )
-                      ,SocketType ( Stream )
-                      ,defaultProtocol
-                      ,SockAddr ( SockAddrInet )
-                      ,bindSocket
-                      ,listen
-                      ,accept
-                      ,socketToHandle)
-import Safe (lookupJustNote,readMay)
-import DataStructures.Composite
-import DataStructures.Atomic
-import IX.Reactive.EventNetwork (gameloop)
-import IX.Universe.Input (initAmap
-                         ,initPmap
-                         ,initLmaps)
-import IX.Universe.HyperSpace (getName)
-import IX.Universe.Utils      (getMessage)
-import Network (withSocketsDo,sClose,PortNumber,Socket)
-import Control.Concurrent.STM.TChan (newTChan
-                                    ,TChan
-                                    ,newTChan
-                                    ,writeTChan
-                                    ,readTChan)
-import Control.Concurrent.STM.TMVar (newTMVar
-                                    ,TMVar
-                                    ,readTMVar
-                                    ,swapTMVar
-                                    ,takeTMVar
-                                    ,putTMVar)
-import Control.Monad.STM (STM,atomically)
---import System.Environment (getArgs)
-import System.IO (IOMode (ReadWriteMode)
-                 ,IO 
-                 ,Handle
-                 ,hSetBuffering
-                 ,BufferMode (LineBuffering)
-                 ,hIsEOF
-                 ,hClose
-                 ,hGetLine
-                 ,hPutStrLn
-                 ,putStrLn)
+module IX.Server.Server
+  (server)
+  where
 
-import Control.Concurrent (forkIO)
-import Control.Exception (bracket)
-import Control.Monad (Monad,forever,(>>),return,mapM_)
-import Data.List (map,zip,length)
-import Data.List.Utils (addToAL)
-import Data.String (String,words,unwords)
-import Data.Bool (Bool (True))
-import Data.Text (Text,pack,unpack)
-import Data.Maybe (Maybe (..),mapMaybe)
-import Data.Int (Int)
-import Data.Tuple (swap)
---import Data.Char (toLower,toUpper)
-import Text.Show (show)
-import Prelude (fromIntegral,($),(++),(.),(-),(+),fst)
+import           DataStructures.Composite
+import           DataStructures.Atomic
+import           IX.Universe.Input
+import           IX.Reactive.EventNetwork (gameloop)
+import           Conduit
+import           Data.Conduit
+import           Data.Functor ((<$>))
+import           Data.Conduit.TMChan
+import           Control.Concurrent.STM
+import qualified Data.Map.Strict       as M
+import qualified Data.Text             as T
+import           Control.Monad.IO.Class
+import           Data.Conduit.Network
+import qualified Data.ByteString.Char8 as BS
+import           Text.Printf              (printf)
+import           Data.Word8               (_cr)
+import           Control.Monad
+import           Control.Concurrent.Async (concurrently)
+import           Control.Exception        (finally)
 
 server :: Int -> IO ()
-server port' = withSocketsDo $ do
-   bracket (prepareSocket $ fromIntegral port' )
-           sClose
-           acceptConnections
-   return ()
+server port' = do
+  server <- newServer
+  runTCPServer (serverSettings port' "*") $ \app -> do
+    (fromClient, client) <-
+      appSource app $$+ readName server app `fuseUpstream` appSink app
+    print (clientName client)
+    (runClient fromClient server client) `finally` (removeClient server client)
 
-prepareSocket :: PortNumber -> IO Socket
-prepareSocket port' = do
-   sock' <- socket AF_INET Stream defaultProtocol
-   let socketAddress = SockAddrInet port' 0000
-   bindSocket sock' socketAddress
-   listen sock' 1
-   putStrLn $ "Listening on " ++ (show port)
-   return sock'
+clientSink :: Client -> Sink BS.ByteString IO ()
+clientSink Client{..} = mapC SCommand =$ sinkTMChan clientChan True
 
-acceptConnections :: Socket -> IO ()
-acceptConnections sock' = do
-   gameData <- atomically $ mkGameData
-   forever $ do
-      (sock, _) <- Network.Socket.accept sock'
-      handle <- socketToHandle sock ReadWriteMode
-      sockHandler handle gameData
-   where
-     mkGameData :: STM GameData
-     mkGameData = do
-        -- g2p: how the game knows how to communicate with players
-        g2p  <- newTMVar [] :: STM (TMVar [(Name,Handle)])
-        -- Player to Player Interface
-        p2p  <- newTMVar [] :: STM (TMVar [(Name,AID)])
-        -- permToGo: manages command flooding
-        permToGo <- newTMVar [] :: STM (TMVar [(AID,Bool)])
-        -- cChan: Player input 
-        cChan    <- newTChan :: STM (TChan [UAC])
-        -- gState: Game  output
-        gState   <- newTChan :: STM (TChan GameState)
 
-        return $ GameData { nhMap       = g2p
-                          , naMap       = p2p
-                          , acMap       = permToGo
-                          , commandChan = cChan
-                          , gameState   = gState }
+newServer :: IO Server
+newServer = do
+  cs  <- newTVarIO M.empty
+  cns <- newTVarIO M.empty
+  gsc <- newTChanIO 
+  cc  <- newTChanIO
+  go  <- newTVarIO False
+  return 
+    Server { 
+       clients       = cs
+     , clientNames   = cns
+     , gameStateChan = gsc
+     , commandChan   = cc
+     , gameon        = go
+    }
 
-sockHandler :: Handle -> GameData -> IO ()
-sockHandler handle gData = do
-    hSetBuffering handle LineBuffering
-    forkIO $ commandProcessor handle gData
-    return ()
-
-commandProcessor :: Handle -> GameData -> IO ()
-commandProcessor handle gData = do
-   untilM_ (hIsEOF handle) handleCommand
-   hClose handle
-   return ()
+readName :: Server -> AppData -> ConduitM BS.ByteString BS.ByteString IO Client
+readName server app = go
   where
-    handleCommand = do
-       line <- hGetLine handle
-       let pc@(cmd:arg) = words line
-           nhMap_TMVar  = nhMap gData
-           naMap_TMVar  = naMap gData
-       naMap' <- atomically $ readTMVar naMap_TMVar
-       hPutStrLn handle $ "naMap is " ++ (show naMap') ++ "\n"
-       hPutStrLn handle ("command was " ++ (unwords pc))
-       case cmd of
-        "echo"  -> echoCommand handle arg
-        "join"  -> joinGame handle arg nhMap_TMVar
-        "list"  -> listPlayers handle nhMap_TMVar
-        "start" -> gameManager gData
-        _       -> doCommand gData handle $ maybeCommand pc naMap'
-                    where
-                      maybeCommand :: [String]     ->
-                                      [(Name,AID)] ->
-                                      (Maybe Command,String)
-                      maybeCommand pc'@(verb:obj:_) naMap'' =
-                         case verb of
-                            "Zap"  -> (Just $ Zap aid,unwords pc')
-                                      where
-                                        aid = lookupJustNote fnh name naMap''
-                                        name = Name (pack obj)
-                                        fnh = "naMAP couldn't find " ++
-                                              "the AID for "         ++
-                                              obj                    ++
-                                              "\n"
-                            "Buy"  -> (readMay $
-                                       unwords pc' :: (Maybe Command),unwords pc')
-                            "Sell" -> (readMay $
-                                       unwords  pc' :: (Maybe Command),unwords pc')
-                            "Move" -> (readMay $
-                                       unwords pc' :: (Maybe Command),unwords pc')
-                            "SetSpeed" -> (readMay $
-                                          unwords pc' :: (Maybe Command),unwords pc)
-                            _      -> (Nothing,"Some weird shit happened\n")
-                      maybeCommand (verb:[]) _ =
-                         (readMay $ verb :: (Maybe Command),(unwords pc))
-                      maybeCommand [] _ = (Nothing,"empty list")
+  go = do
+    yield "What is your game name? " $$ appSink app
+    name <- lineAsciiC $ takeCE 80 =$= filterCE (/= _cr) =$= foldC
+    if BS.null name then
+      go
+    else do
+      ok <- liftIO $ checkAddClient server name app
+      case ok of
+        Nothing -> do
+          respond "The name '%s' is in use, please choose another\n" name
+          go
+        Just client -> do
+          respond "Welcome, %s!\n" name
+          return client
+  respond msg name = yield $ BS.pack $ printf msg $ BS.unpack name
 
-doCommand :: GameData -> Handle -> (Maybe Command,String) -> IO ()
-doCommand (GameData {nhMap = nhMap_TMVar
-                    ,naMap = naMap_TMVar
-                    ,commandChan = cChan_TChan})
-          handle 
-          ((Just cmd),str) = do
-   nhMap' <- atomically $ readTMVar nhMap_TMVar
-   naMap' <- atomically $ readTMVar naMap_TMVar
-   hPutStrLn handle ("successful command" ++ str)
-   atomically $ writeTChan cChan_TChan $ mkCommand nhMap' naMap' cmd
-   where
-     mkCommand :: [(Name,Handle)] -> [(Name,AID)] -> Command -> [UAC]
-     mkCommand nhMap' naMap' cmd' =
-        [uac]
-        where
-           uac = UAC $ PlayerCommand cmd' aid
-           aid = lookupJustNote doCommandAIDFail name naMap'
-           name = lookupJustNote doCommandNHFail handle hnMap
-           hnMap = map swap nhMap'
-           doCommandAIDFail = "doCommand failed to find the aid mapped to " ++
-                              (show name)                 ++
-                              "in naMap"
-           doCommandNHFail  = "doCommand failed to find the name mapped to " ++
-                              (show handle)                                  ++
-                              "in hnMap"
+checkAddClient :: Server -> ClientName -> AppData -> IO (Maybe Client)
+checkAddClient server@Server{..} name app = atomically $ do
+  clientmap <- readTVar clients
+  if M.member name clientmap then
+    return Nothing
+  else do
+    camap  <- readTVar clientNames -- maps aid to name
+    let aid = AID (T.pack $ show $ (((M.size camap) -1) + 100))
+    client <- newClient name app
+    writeTVar clients (M.insert name client clientmap)
+    writeTVar clientNames    (M.insert aid name camap)
+    broadcast server  (Notice (name <++> " has connected"))
+    return (Just client)
 
-doCommand _ handle (Nothing,str) =
-   hPutStrLn handle ("That command made no sense " ++ str ++ " \n")
+broadcast :: Server -> SMessage -> STM ()
+broadcast Server{..} msg = do
+  clientmap <- readTVar clients
+  mapM_ (\client -> sendMessage client msg) (M.elems clientmap)
 
-gameManager :: GameData -> IO ()
-gameManager gData@(GameData {nhMap = nhMap_TMVar
-                            ,naMap = naMap_TMVar
-                            ,acMap = acMap_TMVar
-                            ,commandChan = cChan_TChan
-                            ,gameState = gState_TChan}) = do
-   nhMap' <- atomically $ readTMVar nhMap_TMVar
-   let aids         = map (AID . pack . show) [100 .. numOfPlayers]
-       numOfPlayers = ((length nhMap') -1) + 100
-       naMap'       = zip names aids
-       names        = map fst nhMap'
-       newMaps      = makeMaps aids naMap'
+runClient :: ResumableSource IO BS.ByteString -> Server -> Client -> IO ()
+runClient clientSource server client@Client{..} =
+  void $ concurrently
+  (clientSource $$+- linesUnboundedAsciiC =$ clientSink client)
+  (sourceTMChan clientChan $$ handleMessage server client =$ appSink clientApp)
 
-   announceStart nhMap'
-   atomically $ swapTMVar naMap_TMVar naMap'
-   atomically $ swapTMVar acMap_TMVar $ acMap_ $ aMap $ newMaps
-   gameloop cChan_TChan gState_TChan newMaps
-   forkIO $ responseManager gData
-   return ()
-   where
-     acMap_ :: AgentMap -> [(AID,Bool)]
-     acMap_ (AgentMap aMap') =
-        map (allowCommand . fst) aMap'
-        where
-          allowCommand :: AID -> (AID,Bool)
-          allowCommand aid = (aid,True)
+removeClient :: Server -> Client -> IO ()
+removeClient server@Server{..} client@Client{..} = atomically $ do
+  modifyTVar' clients (M.delete clientName)
+  modifyTVar' clientNames (M.filter (== clientName))
+  broadcast server $ Notice (clientName <++> " has disconnected")
 
-     makeMaps :: [AID] -> [(Name,AID)] -> InitMaps
-     makeMaps aids naMap' =
-        InitMaps {aMap  = initAmap naMap'
-                 ,pMap  = initPmap aids
-                 ,lMaps = initLmaps aids }
+sendMessage :: Client -> SMessage -> STM ()
+sendMessage Client{..} msg = writeTMChan clientChan msg
 
-responseManager :: GameData -> IO ()
-responseManager (GameData {nhMap     = nhMap_TMVar
-                          ,gameState = gState_TChan}) = forever $ do
-   (GameState aMap' _) <- atomically $ readTChan gState_TChan
---   appendFile "rManager.txt" $ show gState
-   sendResponse aMap' nhMap_TMVar
-   return ()
-   where
-     sendResponse :: AgentMap              ->
-                     TMVar [(Name,Handle)] ->
-                     IO ()
-     sendResponse (AgentMap aMap') nhMap_TMVar' = do
-        nhMap' <- atomically $ readTMVar nhMap_TMVar'
-        mapM_ sendResponse' $ map (prepResponse nhMap') $ mapMaybe filterDead aMap'
-        where
-          filterDead :: (AID,Agent) -> Maybe (AID,Agent)
-          filterDead (_,(Dead _)) = Nothing
-          filterDead agt      = Just agt
+listClients :: Server -> STM [ClientName]
+listClients Server{..} = do
+  c <- readTVar clients
+  return $ M.keys c
 
-          prepResponse :: [(Name,Handle)] -> (AID,Agent) -> (Handle,[Message])
-          prepResponse nhMap' (_, agt) =
-             let (name,messages) = case agt of
-                                    (Player _ _ _ _ _ _) ->
-                                      (getName agt,getMessage agt)
-                                    (Dead name') ->
-                                      (name',[GameOver])
-                 handle          = getHandle name
-             in (handle ,messages)
-             where
-               getHandle name = lookupJustNote handleFail name nhMap'
-                  where
-                    handleFail   = "prepResponse couldn't find "  ++
-                                   (show name)                    ++
-                                   " \n"
+newClient :: ClientName -> AppData -> STM Client
+newClient name app = do
+  chan <- newTMChan
+  return Client { clientName     = name
+                , clientApp      = app
+                , clientChan     = chan
+                }
 
-          sendResponse' :: (Handle,[Message]) -> IO ()
-          sendResponse' (handle, messages) = do
-             mapM_ (hPutStrLn handle) $ map show messages
+sendToName :: Server -> ClientName -> SMessage -> STM Bool
+sendToName server@Server{..} name msg = do
+  clientmap <- readTVar clients
+  case M.lookup name clientmap of
+      Nothing -> return False
+      Just client -> sendMessage client msg >> return True
 
-joinGame :: Handle                ->
-            [String]              ->
-            TMVar [(Name,Handle)] ->
-            IO ()
-joinGame handle (name:_) nhMap_TMVar = do
-   nhMap' <- atomically $ takeTMVar nhMap_TMVar
-   _ <- atomically                      $
-        putTMVar nhMap_TMVar            $
-        addToAL nhMap' (Name (pack name)) handle
-   hPutStrLn handle ("you have joined the game as " ++
-                    (show name)                     ++
-                    "\n")
-joinGame handle _ _ = do
-   hPutStrLn handle ("usage: join <name>\n");
+handleMessage :: Server -> Client -> Conduit SMessage IO BS.ByteString
+handleMessage server client@Client{..} = awaitForever $ \case
+  Notice msg         -> output $ "*** " <++> msg
+  Tell name msg      -> output $ "*" <++> name <++> "*: " <++> msg
+  Broadcast name msg -> output $ "<" <++> name <++> ">: " <++> msg
+  SCommand msg       -> case BS.words msg of
+    ["/start"] -> do
+      ok <- liftIO $ atomically $ gameManager server
+      unless ok $ output $ "Game already started"
+    
+    ["/tell", who, what] -> do
+      ok <- liftIO $ atomically $ sendToName server who $ Tell clientName what
+      unless ok $ output $ who <++> " is not connected."
+    ["/help"] ->
+      mapM_ output [ "------ help -----"
+                   , "/start - starts a new game"
+                   , "/shout <message> - Everyone needs to know eh?"
+                   , "/tell <who> <what> - send a private message"
+                   , "/list - list users online"
+                   , "/help - show this message"
+                   , "/quit - leave"
+                   ]
+    ["/list"] -> do
+      cl <- liftIO $ atomically $ listClients server
+      output $ BS.concat $ "----- online -----\n" : map ((flip BS.snoc) '\n') cl
+    ["/quit"] -> do
+      error . BS.unpack $ clientName <++> " has quit"
+    ["/shout"] -> do
+      liftIO $ atomically $ broadcast server $ Broadcast clientName msg
+        -- ignore empty strings
+    [""] -> return ()
+    [] -> return ()
 
-listPlayers :: Handle -> TMVar [(Name,Handle)] -> IO ()
-listPlayers handle nhMap_TMVar = do
-   nhMap' <- atomically $ takeTMVar nhMap_TMVar
-   hPutStrLn handle $ show $ map (fromName . fst) nhMap'
-   atomically $ putTMVar nhMap_TMVar nhMap'
+        -- broadcasts
+    ws ->
+      if BS.head (head ws) == '/' then
+        output $ "Unrecognized command: " <++> msg
+      else
+        liftIO $ atomically $ commandManager server $ GCommand clientName msg
+  where
+    output s = yield (s <++> "\n")
 
-fromName :: Name -> Text
-fromName (Name name) = name
+(<++>) = BS.append
 
-echoCommand :: Handle -> [String] -> IO ()
-echoCommand handle arg = do
-    hPutStrLn handle (unwords arg)
-
-announceStart :: [(Name,Handle)] -> IO ()
-announceStart nhMap' = do
-   _ <- mapM_ (announce message) nhMap'
-   return ()
-   where
-     message = ", someone just started shit. Game on\n"
-
-
-announce :: String -> (Name,Handle) -> IO ()
-announce message ((Name name),handle) = do
-   hPutStrLn handle $ (unpack name) ++ ", " ++ message
-
---allowCommand :: AgentMap -> [(AID,Bool)]
---allowCommand (AgentMap aMap) =
---   map (allowCommand' . fst) aMap
---   where
---     allowCommand' :: AID -> (AID,Bool)
---     allowCommand' aid = (aid,True)
-
-untilM_ :: Monad m => m Bool -> m a -> m ()
-untilM_ cond action = do
-   b <- cond
-   if b
-     then return ()
-     else action >> untilM_ cond action
-
-port :: Int
-port = 3000
-
+gameManager server@Server{..} = do
+  gameStarted <- readTVar gameon
+  anMap       <- readTVar clientNames
+  aids        <- M.keys <$> readTVar clientNames
+  if gameStarted == True then
+    return gameStarted
+  else do
+    let anMap_keys = M.keys anMap
+        newMaps    = initMaps anMap anMap_keys
+        initMaps   =
+          InitMaps {
+              aMap = initAmap anMap  
+            , pMap = initPmap aids
+            , lMap = initLmap aids
+          } 
+    _ <- gameloop commandChan gameStateChan newMaps
+    return True
+commandManager = undefined

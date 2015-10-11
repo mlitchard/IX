@@ -28,132 +28,160 @@ module DataStructures.Composite
    , Command (..)
    , CommandError (..)
    , ShipChange (..)
-   , PlanetNameWrapper (..)
    , GameState (..)
-   , GameData (..)
    , InitMaps (..)
    , Parameters (..)
    , ActionPartitions (..)
    , Buffer
-   , DieRolls)
+   , DieRolls
+   , Server (..)
+   , Client (..)
+   , SMessage (..))
    where
 
+import DataStructures.Atomic
+
+import Reactive.Banana.Frameworks (AddHandler)
+import Reactive.Banana.Combinators (Event,Behavior)
 import ClassyPrelude
 import Control.Concurrent.STM.TChan (TChan)
 import System.IO (Handle)
 import Control.Concurrent.STM.TMVar (TMVar)
-import Reactive.Banana.Frameworks (AddHandler)
-import Reactive.Banana.Combinators (Event,Behavior)
+import           Data.Conduit.TMChan
 
-import DataStructures.Atomic
+import qualified Data.ByteString.Char8 as BS
+import           Data.Conduit.Network
+import qualified Data.Map.Strict as Map
 
-data Parameters = Parameters {
-   input        :: AddHandler [UAC]
-  ,output       :: TChan GameState
-  ,initMaps     :: InitMaps
-  ,tick         :: AddHandler ()
-  ,playerRolls  :: [PInt]
-  ,marketRolls  :: [PInt]
-}
+data SMessage                          -- Server Messages 
+  = Notice BS.ByteString               -- To: Everyone From: Server
+  | Tell ClientName BS.ByteString      -- Talk smack to other players, of course
+  | Broadcast ClientName BS.ByteString -- To: Everyone From: Game
+  | SCommand BS.ByteString             -- Server Command
+  | GCommand ClientName BS.ByteString  -- Game Command Soon To Be JSOn
+  deriving Show
 
-data InitMaps = InitMaps {
-   aMap      :: AgentMap
-  ,pMap      :: PlanetMap
-  ,lMaps     :: LocationMap
-}
+data Server = Server
+  { clients       :: TVar (Map.Map ClientName Client)
+  , clientNames   :: TVar (Map.Map AID ClientName)
+  , gameStateChan :: TChan GameState
+  , commandChan   :: TChan [UAC]
+  , gameon        :: TVar Bool
+  }
 
-data GameData = GameData {
-   nhMap       :: TMVar [(Name,Handle)]
-  ,naMap       :: TMVar [(Name,AID)]
-  ,acMap       :: TMVar [(AID,Bool)]
-  ,commandChan :: TChan [UAC]
-  ,gameState   :: TChan GameState
-}
-type Buffer t   = Event t [VAC]
+data Client = Client
+  { clientName     :: ClientName
+  , clientChan     :: TMChan SMessage
+  , clientApp      :: AppData
+  }
+data Parameters = Parameters 
+  { input        :: AddHandler [UAC] -- All user input per tick
+  , output       :: TChan GameState  -- 
+  , initMaps     :: InitMaps         -- provides initial states
+  , tick         :: AddHandler ()    -- provides heartbeat
+  , playerRolls  :: [PInt]           -- infitnite lists for die rolls
+  , marketRolls  :: [PInt]
+  }
+
+data InitMaps = InitMaps
+  { aMap      :: AgentMap -- tracks all Agent records
+  , pMap      :: PlanetMap -- tracks all Planet records
+  , lMap     :: LocationMap -- tracks Agent locations
+  }
+
+--data GameData = GameData 
+--  { nhMap       :: TMVar [(Name,Handle)] -- easy mapping name to handle
+--  , naMap       :: TMVar [(Name,AID)]    -- players know names, game knows AIDs
+--  , acMap       :: TMVar [(AID,Bool)]    
+--  , commandChan :: TChan [UAC]     -- all valid player commands end up in here
+--  , gameState   :: TChan GameState --       
+--  }
+
+type Buffer t   = Event t [VAC] -- the list of commands to be
+                                --  processed in a tick
 type DieRolls t = Behavior t [PInt]
 
-data LocationMap = LocationMap ![(AID,Location)] deriving Show
-data ResourceMap = ResourceMap ![(ResourceName,Resource)] deriving Show
-data PlanetMap = PlanetMap ![(PlanetName,Planet)] deriving (Show)
+data LocationMap = LocationMap (Map.Map AID Location) deriving Show
+data ResourceMap = ResourceMap (Map.Map ResourceName Resource) deriving Show
+data PlanetMap = PlanetMap (Map.Map PlanetName Planet) deriving (Show)
 
-data AgentMap = AgentMap ![(AID, Agent)] deriving Show
-data SubAgentMap = SubAgentMap ![(AID,Agent)] deriving Show
+data AgentMap = AgentMap (Map.Map AID Agent) deriving Show
+data SubAgentMap = SubAgentMap (Map.Map AID Agent) deriving Show
 -- DAgentMap describes what updateAMap uses to modify AgentMap
-data DAgentMap = DAgentMap SubAgentMap
-               | LocationUpdate ![(AID,Message)]
-               | ClearOut -- used when eGameState happens to clear out message
-                  deriving Show
+data DAgentMap 
+  = DAgentMap SubAgentMap
+  | LocationUpdate (Map.Map AID Message)
+  | ClearOut -- used when eGameState happens to clear out message
+  deriving Show
 
-data PlanetNameWrapper = FP_W FromPlanetName
-                       | TP_W ToPlanetName 
-                          deriving (Ord,Eq,Show)
+data Location 
+  = Location (Either 
+               (PlanetName,PTransitionState) (HyperSpace,HTransitionState))
+               deriving Show
 
-data Location = Location (Either (PlanetName,PTransitionState)
-                                 (HyperSpace,HTransitionState)) deriving Show
+newtype ToPlanet   = ToPlanet (ToPlanetName, Planet) deriving Show
+newtype FromPlanet = FromPlanet (FromPlanetName, Planet) deriving Show
 
-data LData = AgentKey  AID ToPlanet FromPlanet
-           | AgentList [(AID,Agent)] 
-              deriving Show
+data Planet = Planet 
+  { neighbors :: ![(PlanetName,Distance)]
+  , refueling :: Bool
+  , residents :: ![AID]
+  , resources :: ![ResourceName]
+  } 
+  deriving Show
 
-
-newtype ToPlanet       = ToPlanet (ToPlanetName, Planet) deriving Show
-newtype FromPlanet     = FromPlanet (FromPlanetName, Planet) deriving Show
-
-data Planet = Planet {
-   neighbors :: ![(PlanetName,Distance)]
-  ,refueling :: Bool
-  ,residents :: ![AID]
-  ,resources :: ![ResourceName]
-} deriving Show
-
-data HyperSpace = HyperSpace {
-   destination       :: ToPlanetName
-  ,origin            :: FromPlanetName
-  ,totalDistance     :: PInt
-  ,distanceTraversed :: PInt
-} deriving Show -- Agents are not aware of other
+data HyperSpace = HyperSpace
+  { destination       :: ToPlanetName
+  , origin            :: FromPlanetName
+  , totalDistance     :: PInt
+  , distanceTraversed :: PInt
+  }
+  deriving Show -- Agents are not aware of other
                 -- Agents in HyperSpace
 
-data Resource = Resource {
-   highestPrice :: PInt
-  ,lowestPrice  :: PInt
-  ,currentPrice :: PInt
-  ,stability    :: Stability
-} deriving (Show,Ord,Eq,Read)
+data Resource = Resource
+  { highestPrice :: PInt
+  , lowestPrice  :: PInt
+  , currentPrice :: PInt
+  , stability    :: Stability
+  }
+  deriving (Show,Ord,Eq,Read)
 
-data Agent = Player { aName    :: Name
-                    , msg      :: ![Message]
-                    , ship     :: Ship
-                    , credits  :: PInt
-                    , debt     :: PInt
-                    , isDead   :: Bool }
-           | Dead Name
-              deriving Show
+data Agent = Player
+  { aName    :: ClientName
+  , msg      :: ![Message]
+  , ship     :: Ship
+  , credits  :: PInt
+  , debt     :: PInt
+  , isDead   :: Bool 
+  }
+           | Dead ClientName
+  deriving Show
 
-data Ship = Ship {
-    ship_parts :: ShipParts 
-   ,ship_stats :: ShipStats
-} deriving Show
+data Ship = Ship
+  { ship_parts :: ShipParts 
+  , ship_stats :: ShipStats
+  }
+  deriving Show
 
-data ShipParts = ShipParts {
-   engine     :: Engine
-  ,weapons    :: Weapon
-  ,hull       :: Hull
-  ,cargoSize  :: CargoSize
-  ,gasTank    :: TankSize
-  ,special    :: Maybe Special
-} deriving Show
+data ShipParts = ShipParts
+  { engine     :: Engine
+  , weapons    :: Weapon
+  , hull       :: Hull
+  , cargoSize  :: CargoSize
+  , gasTank    :: TankSize
+  , special    :: Maybe Special
+  } deriving Show
 
-data ShipStats = ShipStats {
-   hull_strength :: HullStrength
+data ShipStats = ShipStats
+  { hull_strength :: HullStrength
   ,cargo         :: [(ResourceName,PInt)]
   ,fuel          :: Fuel
   ,repairing     :: Bool
   ,warp_speed    :: Maybe WarpSpeed
-} deriving Show
+  }
+  deriving Show
 
-
-data ModAgent = ModAgent AID Agent 
 data Message = PlanetLoc PlanetName 
              | InHyp Location
              | Onward ToPlanetName FromPlanetName
@@ -208,7 +236,7 @@ data Result = Looked (Either PlanetName Location) Ship
             | Damage AID DieRoll Attacked
             | ChangeShip ShipChange
             | Commerce CommerceResult (ResourceName,Resource) Amount
-            | MarketData PlanetName [(ResourceName,Resource)]
+            | MarketData PlanetName ![(ResourceName,Resource)]
             | CError CommandError
 
 data ActionPartitions t = ActionPartitions {

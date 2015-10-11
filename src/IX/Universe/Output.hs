@@ -11,87 +11,87 @@ import DataStructures.Composite
 import IX.Universe.Utils (setMessage,mkAgent,getPlanet)
 import IX.Universe.HyperSpace (getName,setRepairField)
 
+import qualified Data.Map as M
 import Data.Maybe (mapMaybe)
 import Data.Text (unpack)
 import Data.List (foldl')
 import Data.List.Utils (addToAL)
-import Safe (lookupJustNote)
+import Safe (fromJustNote)
 
 
 updateAMap :: DAgentMap -> AgentMap -> AgentMap
-updateAMap (DAgentMap (SubAgentMap agts@(_:_))) (AgentMap aMap') =
-   AgentMap $ foldl' updateAgents aMap' agts
+updateAMap (DAgentMap (SubAgentMap agts)) (AgentMap aMap) =
+  AgentMap $ M.foldlWithKey updateAgents aMap agts
 
-updateAMap (DAgentMap (SubAgentMap [])) aMap' = aMap'
+--updateAMap (DAgentMap (SubAgentMap [])) aMap' = aMap'
 
-updateAMap (LocationUpdate messages) (AgentMap aMap') =
-   AgentMap $ foldl' updateMessages aMap' messages
+updateAMap (LocationUpdate messages) (AgentMap aMap) =
+  AgentMap $ M.foldlWithKey updateMessages aMap messages
 
-updateAMap ClearOut (AgentMap aMap') =
-   AgentMap $ map (repairShip . markDead . removeMSG) aMap'
+updateAMap ClearOut (AgentMap aMap) =
+  AgentMap $ M.map (repairShip . markDead . removeMSG) aMap
 
-updateAgents :: [(AID,Agent)] -> (AID,Agent) -> [(AID,Agent)]
-updateAgents aMap (aid,agt) = addToAL aMap aid agt
+updateAgents :: M.Map AID Agent -> AID -> Agent -> M.Map AID Agent
+updateAgents aMap aid agt = M.insert aid agt aMap
 
-updateMessages :: [(AID,Agent)] -> (AID,Message) -> [(AID,Agent)]
-updateMessages aMap (aid,msg') =
-   addToAL aMap aid  $
-   setMessage [msg']  $
-   lookupJustNote upMessageFail aid aMap
-   where
-      upMessageFail = "updateMessage failed to find " ++
-                       show aid                        ++
-                      "in agent map\n"
+updateMessages :: M.Map AID Agent -> AID -> Message -> M.Map AID Agent
+updateMessages aMap aid msg =
+  let agt = setMessage [msg] $ fromJustNote upMessageFail (M.lookup aid aMap)
+  in M.insert aid agt aMap 
+  where
+    upMessageFail =
+      "updateMessage failed to find " ++
+      show aid                        ++
+      "in agent map\n"
 
-removeMSG :: (AID,Agent) -> (AID,Agent)
-removeMSG ap@(aid,agt) =
-   case agt of
-      (Dead _) -> ap
-      _    -> let agt' = setMessage [] agt
-              in (aid,agt')
+removeMSG :: Agent -> Agent
+removeMSG agt =
+  case agt of
+    (Dead _) -> agt
+    _        -> setMessage [] agt
 
-markDead :: (AID,Agent) -> (AID,Agent)
-markDead ap@(aid,agt) =
-   case agt of
-      (Dead _) -> ap -- no more game messages
-      _        ->
-         case isDead agt of
-            True  -> (aid, Dead name)
-               where
-                  name = getName agt
-            False -> ap
+markDead :: Agent -> Agent
+markDead agt =
+  case agt of
+     (Dead _) -> agt -- no more game messages
+     _        ->
+        case isDead agt of
+          True  -> Dead name
+              where
+                name = getName agt
+          False -> agt
 
 
-repairShip :: (AID,Agent) -> (AID,Agent)
-repairShip ap@(aid,agt@(Player {ship = Ship shipParts shipStats})) =
-   case repairing shipStats of
-      True
-         | hullStrength < maxStrength -> (aid,repairShip')
-         | otherwise                  -> (aid,stopRepairing)
-      False                           -> ap
-   where
-      (HullStrength hullStrength) = hull_strength shipStats
-      maxStrength       = PInt $ (fromEnum $ hull shipParts) * 100
-      repairShip'       =
-         agt {ship = Ship shipParts setHealthField}
-      setHealthField    =
-         shipStats {hull_strength = HullStrength $ hullStrength + (PInt 20)}
-      stopRepairing     = setRepairField False agt
+repairShip :: Agent -> Agent
+repairShip agt@(Player {ship = Ship shipParts shipStats}) =
+  case repairing shipStats of
+    True
+       | hullStrength < maxStrength -> repairShip'
+       | otherwise                  -> stopRepairing
+    False                           -> agt
+  where
+     (HullStrength hullStrength) = hull_strength shipStats
+     maxStrength       = PInt $ (fromEnum $ hull shipParts) * 100
+     repairShip'       =
+        agt {ship = Ship shipParts setHealthField}
+     setHealthField    =
+        shipStats {hull_strength = HullStrength $ hullStrength + (PInt 20)}
+     stopRepairing     = setRepairField False agt
 
-repairShip ap = ap
+repairShip agt = agt
 
 updatePmap :: LocationMap -> AgentMap -> PlanetMap -> PlanetMap
 updatePmap (LocationMap l_map) (AgentMap a_map) (PlanetMap p_map) =
    -- add recently landed
-   let landed   = foldl' addLanded p_map l_map
+  let landed   = M.foldlWithKey addLanded p_map l_map
    -- bring out yer dead
-       deadGone = foldl' (removeDead a_map) landed $ findPlanetSide l_map
+      deadGone = M.foldlWithKey (removeDead a_map) landed $ findPlanetSide l_map
    -- then remove the ones that just left. 
-   in PlanetMap $ foldl' removeDeparted deadGone l_map
+  in PlanetMap $ M.foldlWithKey removeDeparted deadGone l_map
 
 lookToAgt :: AgentMap -> (AID,Result) -> Maybe DAgentMap
 lookToAgt (AgentMap aMap) (aid@(AID aid'),Looked res ship) =
-   let o_agent = lookupJustNote aAgentFail aid aMap
+   let o_agent = fromJustNote aAgentFail (M.lookup aid aMap)
    in case res of
          Left pName ->
             Just $ DAgentMap $ mkAgent (aid,o_agent) (PlanetLoc pName)
@@ -104,52 +104,55 @@ lookToAgt _ _ = Nothing
 
 cErrToAgt :: AgentMap -> (AID,Result) -> Maybe DAgentMap
 cErrToAgt (AgentMap aMap') (aid, (CError cerr)) =
-   let oAgent  = lookupJustNote cErrToAgtERR aid aMap'
+   let oAgent  = fromJustNote cErrToAgtERR (M.lookup aid aMap')
        naAgent = setMessage [CommandErr cerr] oAgent
-   in Just $ DAgentMap $ SubAgentMap $ [(aid,naAgent)]
+   in Just $ DAgentMap $ SubAgentMap $ M.singleton aid naAgent
     where
       cErrToAgtERR = "cErrToAgt failed to find "       ++
                      "the following agent in AgentMap" ++
                      (show aid)
 cErrToAgt _ _ = Nothing
 
-addLanded :: [(PlanetName,Planet)]      ->
-             (AID,Location)             ->
-             [(PlanetName,Planet)]
-addLanded p_map
-   (aid,(Location (Left (pName,Landed)))) =
-      case (isAdded aid planet) of
-            True  -> p_map
-            False -> addToAL p_map pName $ addResident
-      where
-         addResident = setResidents uResidents $ planet
-         uResidents  = (residents planet) ++ [aid]
-         planet      = getPlanet pName (PlanetMap p_map)
+addLanded :: M.Map PlanetName Planet    ->
+             AID                        ->
+             Location                   ->
+             M.Map PlanetName Planet
+addLanded p_map aid (Location (Left (pName,Landed))) =
+  case (isAdded aid planet) of
+    True  -> p_map
+    False -> M.insert pName addResident p_map  
+   where
+     addResident = setResidents uResidents $ planet
+     uResidents  = (residents planet) ++ [aid]
+     planet      = getPlanet pName (PlanetMap p_map)
 
-addLanded pMap'' _ = pMap''
+addLanded pMap _ _  = pMap
 
-removeDeparted :: [(PlanetName,Planet)] ->
-                  (AID,Location)        ->
-                  [(PlanetName,Planet)]
-removeDeparted pMap (aid, (Location (Right (hyp,Launched)))) =
-   addToAL pMap pName $ removeResident aid planet
-      where
-         (FromPlanetName pName) = origin hyp
-         planet = getPlanet pName (PlanetMap pMap)
+removeDeparted :: M.Map PlanetName Planet ->
+                  AID                     ->
+                  Location                ->
+                  M.Map PlanetName Planet
+removeDeparted pMap aid (Location (Right (hyp,Launched))) =
+  let planet' = removeResident aid planet
+  in M.insert pName planet' pMap
+  where
+    (FromPlanetName pName) = origin hyp
+    planet = getPlanet pName (PlanetMap pMap)
 
-removeDeparted pMap'' _ = pMap''
+removeDeparted pMap _ _ = pMap
 
-removeDead :: [(AID,Agent)]          ->
-              [(PlanetName,Planet)]  ->
-              (AID,PlanetName)       ->
-              [(PlanetName,Planet)]
-removeDead aMap pMap (aid,pName) =
-   let agent = lookupJustNote aAgentFail aid aMap
+removeDead :: M.Map AID Agent         ->
+              M.Map PlanetName Planet ->
+              AID                     ->
+              PlanetName              ->
+              M.Map PlanetName Planet
+removeDead aMap pMap aid pName =
+   let agent = fromJustNote aAgentFail (M.lookup aid aMap)
    in case agent of
       (Dead _) -> let planet =
                          removeResident aid $
-                         lookupJustNote planetFail pName pMap
-                  in addToAL pMap pName planet
+                         fromJustNote planetFail (M.lookup pName pMap)
+                  in M.insert pName planet pMap
                   where
                      planetFail = "removeDead failed to find this " ++
                                   "planet from PlanetMap "          ++
@@ -162,13 +165,13 @@ removeDead aMap pMap (aid,pName) =
                    "\n"
 
 
-findPlanetSide :: [(AID,Location)] -> [(AID,PlanetName)]
+findPlanetSide :: M.Map AID Location -> M.Map AID PlanetName
 findPlanetSide locs =
-   mapMaybe findPlanetSide' locs
+   M.mapMaybe findPlanetSide' locs
    where
-     findPlanetSide' :: (AID,Location) -> Maybe (AID,PlanetName)
-     findPlanetSide' (aid,Location (Left (pName,_))) = Just (aid,pName)
-     findPlanetSide' _                               = Nothing
+     findPlanetSide' :: Location -> Maybe PlanetName
+     findPlanetSide' (Location (Left (pName,_))) = Just pName
+     findPlanetSide' _                           = Nothing
 
 isAdded :: AID -> Planet -> Bool
 isAdded aid (Planet {residents = aids}) = aid `elem` aids
