@@ -115,7 +115,7 @@ makeNetworkDescription params = do
        (eLocationMap,bLocationMap) =
           mapAccum initLMs                             $
           (manageTravel <$> bPlanetMap <*> bAgentMap) <@>
-          eHypTravel' `union` eMove
+          eHypTravel' `unionWith asIS` eMove
           where
              eHypTravel' = eHypTravel eGameState
 

@@ -11,19 +11,30 @@ import DataStructures.Composite
 import IX.Universe.Combat
 import IX.Universe.HyperSpace
 import IX.Universe.Input
+import IX.Universe.Utils
 import IX.Universe.Output
 import IX.Reactive.Utils
 import IX.Universe.Market
 
 import Data.Either (isLeft,isRight)
-import Reactive.Banana
-import Prelude
+import Reactive.Banana (apply
+                       ,unionWith
+                       ,Behavior
+                       ,Event
+                       ,filterJust
+                       ,filterE
+                       ,(<@)
+                       ,(<@>)
+                       ,(<$)
+                       ,(<$>)
+                       ,(<*>))
+import Prelude hiding (unionWith)
 
-playerInput :: GameMaps t        ->
-               DieRolls t        ->
-               Event t GameState ->
-               Buffer t          ->
-              (Event t DAgentMap,  Event t (Maybe (AID,ToPlanetName)))
+playerInput :: GameMaps        ->
+               DieRolls        ->
+               Event GameState ->
+               Buffer          ->
+              (Event DAgentMap,  Event (Maybe (AID,ToPlanetName)))
 playerInput gMaps bDieRolls eGameState eBuffer =
    
    let bAMap'          = bAMap gMaps
@@ -31,29 +42,29 @@ playerInput gMaps bDieRolls eGameState eBuffer =
 
        eClearOut   = (Just $ ClearOut) <$ eGameState
        eLook       = apply (lookToAgt <$> bAMap') $
-                     eHypAction `union` ePlanetAction
+                     unionWith asIS eHypAction ePlanetAction
 
        eDamage     = apply (dmgToAgt <$> bAMap') $ ePlanetAction
 
        eTransition = (commTransitions <$> bLMap') <@ eLMap'
 
        eCError     = apply (cErrToAgt <$> bAMap') $
-                     eHypAction `union` ePlanetAction
+                     eHypAction `unionWith` ePlanetAction
 
        eChangeShip = apply (changeShip <$> bAMap') $
-                     eHypAction `union` ePlanetAction
+                     eHypAction `unionWith` ePlanetAction
 
        eLocalMarket = apply (marketToAgt <$> bAMap') $ ePlanetAction
 
        eCommerce = apply (commerceToAgt <$> bAMap') $ ePlanetAction
 
-       eAInput     = filterJust ( eClearOut   `union`
-                                  eLook       `union`
-                                  eDamage     `union`
-                                  eTransition `union`
-                                  eChangeShip `union`
-                                  eCommerce   `union`
-                                  eLocalMarket `union`
+       eAInput     = filterJust ( eClearOut   `unionWith`
+                                  eLook       `unionWith`
+                                  eDamage     `unionWith`
+                                  eTransition `unionWith`
+                                  eChangeShip `unionWith`
+                                  eCommerce   `unionWith`
+                                  eLocalMarket `unionWith`
                                   eCError)
 
        ePlanetAction = psAction actions
@@ -64,15 +75,14 @@ playerInput gMaps bDieRolls eGameState eBuffer =
    where
       actions = partitionedActions gMaps bDieRolls eBuffer
 
-partitionedActions  :: GameMaps t ->
-                       DieRolls t ->
-                       Buffer t   ->
-                       ActionPartitions t
+partitionedActions  :: GameMaps ->
+                       DieRolls ->
+                       Buffer   ->
+                       ActionPartitions 
 partitionedActions gMaps bDieRolls eBuffer =
    let eMove           = Just <$> filterRight eEvalPComm
        ePSaction       = filterLeft eEvalPComm
-       eHSaction       = spill        $
-                         evalHypComm <$>
+       eHSaction       = evalHypComm <$>
                          bLMap'      <*>
                          bAMap'      <@>
                          filterJust eHypComm
@@ -89,29 +99,29 @@ partitionedActions gMaps bDieRolls eBuffer =
          (evalPComm <$> bPMap' <*> bAMap' <*> bRMap' <*> bDieRolls) `apply`
          ePComm
       ePComm             =
-         spill $ apply (orderUPComm <$> bLMap') $ filterJust eUPComm
+         apply (orderUPComm <$> bLMap') $ filterJust eUPComm
 
-eUpdatePmap :: (Behavior t LocationMap, Event t ()) ->
-               Behavior t AgentMap                  ->
-               Event t (PlanetMap -> PlanetMap)
+eUpdatePmap :: (Behavior LocationMap, Event ()) ->
+               Behavior AgentMap                ->
+               Event (PlanetMap -> PlanetMap)
 eUpdatePmap (bLMap,eLMap) bAMap' =
    (updatePmap <$> bLMap <*> bAMap') <@ eLMap
 
-eHypTravel :: Event t GameState -> Event t (Maybe (AID,ToPlanetName))
+eHypTravel :: Event GameState -> Event (Maybe (AID,ToPlanetName))
 eHypTravel eGameState = Nothing <$ eGameState
 
 -- much like split
 
-toEPair :: Event t (a, b) -> (Event t a, Event t b)
+toEPair :: Event (a, b) -> (Event a, Event b)
 toEPair epair = (extractFst <$> epair, extractSnd <$> epair)
    where
       extractFst (x, _) = x
       extractSnd (_, y) = y
 
-filterRight :: Event t (Either a b) -> Event t b
+filterRight :: Event (Either a b) -> Event b
 filterRight e = filterJust $ fromRight <$> filterE isRight e
 
-filterLeft :: Event t (Either a b) -> Event t a
+filterLeft :: Event (Either a b) -> Event a
 filterLeft e = filterJust $ fromLeft <$> filterE isLeft e
 
 

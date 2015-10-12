@@ -141,7 +141,7 @@ evalHypComm (LocationMap l_map) (AgentMap a_map) (HSpaceComm hCommands) =
 evalMove aid agt ((ToPlanet (tpn@(ToPlanetName pn),_)), fpn) (PlanetMap pMap') =
    case (warp_speed $ ship_stats $ ship agt) of
       Just _  -> attemptDest
-      Nothing -> Left $ (aid,resultErr)
+      Nothing -> Left $ [(aid,resultErr)]
    where
       resultErr = CError $ SetSpeedFirst
       attemptDest =
@@ -151,8 +151,8 @@ evalMove aid agt ((ToPlanet (tpn@(ToPlanetName pn),_)), fpn) (PlanetMap pMap') =
                 neighbors <$>
                 M.lookup fpn pMap'
          in case mDest of
-                     Just _  -> Right $ (aid,tpn)
-                     Nothing -> Left  $ (aid,resultErr')
+                     Just _  -> Right $ [(aid,tpn)]
+                     Nothing -> Left  $ [(aid,resultErr')]
           where
              resultErr' = CError $ CantMoveTo tpn
 

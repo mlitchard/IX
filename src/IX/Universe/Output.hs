@@ -89,18 +89,21 @@ updatePmap (LocationMap l_map) (AgentMap a_map) (PlanetMap p_map) =
    -- then remove the ones that just left. 
   in PlanetMap $ M.foldlWithKey removeDeparted deadGone l_map
 
-lookToAgt :: AgentMap -> (AID,Result) -> Maybe DAgentMap
-lookToAgt (AgentMap aMap) (aid@(AID aid'),Looked res ship) =
-   let o_agent = fromJustNote aAgentFail (M.lookup aid aMap)
-   in case res of
-         Left pName ->
-            Just $ DAgentMap $ mkAgent (aid,o_agent) (PlanetLoc pName)
-         Right hyp  ->
-            Just $ DAgentMap $ mkAgent (aid,o_agent) (InHyp hyp)
-   where
-      aAgentFail = "lookToAgt failed to match aid " ++ unpack aid'
+lookToAgt :: AgentMap -> [(AID,Result)] -> [Maybe DAgentMap]
+lookToAgt (AgentMap aMap) resList =
+  map processLook resList
+  where
+    processLook (aid@(AID aid'),Looked res ship) =
+      let o_agent = fromJustNote aAgentFail (M.lookup aid aMap)
+      in case res of
+           Left pName ->
+             Just $ DAgentMap $ mkAgent (aid,o_agent) (PlanetLoc pName) 
+           Right hyp  ->
+             Just $ DAgentMap $ mkAgent (aid,o_agent) (InHyp hyp)
+      where
+        aAgentFail = "lookToAgt failed to match aid " ++ unpack aid'
+    processLook _ = Nothing
 
-lookToAgt _ _ = Nothing
 
 cErrToAgt :: AgentMap -> (AID,Result) -> Maybe DAgentMap
 cErrToAgt (AgentMap aMap') (aid, (CError cerr)) =

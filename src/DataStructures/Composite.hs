@@ -97,9 +97,9 @@ data InitMaps = InitMaps
 --  , gameState   :: TChan GameState --       
 --  }
 
-type Buffer t   = Event t [VAC] -- the list of commands to be
+type Buffer = Event [VAC] -- the list of commands to be
                                 --  processed in a tick
-type DieRolls t = Behavior t [PInt]
+type DieRolls = Behavior [PInt]
 
 data LocationMap = LocationMap (Map.Map AID Location) deriving Show
 data ResourceMap = ResourceMap (Map.Map ResourceName Resource) deriving Show
@@ -193,11 +193,11 @@ data Message = PlanetLoc PlanetName
              | CommandErr CommandError
                 deriving Show
 
-data GameMaps t = GameMaps {
-   bAMap  :: Behavior t AgentMap
-  ,beLMap :: (Behavior t LocationMap, Event t ())
-  ,bRMap  :: Behavior t ResourceMap
-  ,bPMap  :: Behavior t PlanetMap
+data GameMaps = GameMaps {
+   bAMap  :: Behavior AgentMap
+  ,beLMap :: (Behavior LocationMap, Event ())
+  ,bRMap  :: Behavior ResourceMap
+  ,bPMap  :: Behavior PlanetMap
 }
 
 data GameState = GameState !AgentMap !PlanetMap deriving Show
@@ -239,10 +239,10 @@ data Result = Looked (Either PlanetName Location) Ship
             | MarketData PlanetName ![(ResourceName,Resource)]
             | CError CommandError
 
-data ActionPartitions t = ActionPartitions {
-   moveAction :: Event t (Maybe (AID,ToPlanetName))
-  ,psAction   :: Event t (AID,Result)
-  ,hsAction   :: Event t (AID,Result)
+data ActionPartitions = ActionPartitions {
+   moveAction :: Event (Maybe (AID,ToPlanetName))
+  ,psAction   :: Event (AID,Result)
+  ,hsAction   :: Event (AID,Result)
 }
 
 data CommandError = CantMoveTo ToPlanetName

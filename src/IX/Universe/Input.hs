@@ -78,7 +78,7 @@ evalPComm :: PlanetMap             ->
              ResourceMap           ->
              [PInt]                ->
              (PlanetName,PCommand) ->
-             Either (AID,Result) (AID,ToPlanetName) -- This type needs 
+             Either [(AID,Result)] [(AID,ToPlanetName)] -- This type needs 
                                                     -- consolodation
                                                     -- (AID,ToPlanetName) is 
                                                     -- also a Result
@@ -90,26 +90,26 @@ evalPComm p_map
    let agt    = fromJustNote agtFail (M.lookup aid a_map)
    in case agt of
         (Dead _)                       ->
-           Left $ (aid, CError $ ActionCancelledDueToBeingVeryDead)
+           Left $ [(aid, CError $ ActionCancelledDueToBeingVeryDead)]
         _                              ->
           case comm of
             Repair                     ->
-               Left $ (aid,(CError MustBeInHyperSpaceToRepair))
+               Left $ [(aid,(CError MustBeInHyperSpaceToRepair))]
             SetSpeed warp_speed        ->
-               Left $ (aid,evalSetSpeed warp_speed ship')
+               Left $ [(aid,evalSetSpeed warp_speed ship')]
                where
                ship' = ship agt
 
             Market                     ->
-               Left $ (aid,evalMarket p_name planet' r_map)
+               Left $ [(aid,evalMarket p_name planet' r_map)]
             Buy r_name amt             ->
-               Left $ (aid,evalBuy')
+               Left $ [(aid,evalBuy')]
                where
                   evalBuy' =
                      evalCommerce BuyA agt (r_name,r_map) amt (p_name,planet')
 
             Sell r_name amt            ->
-               Left $ (aid,evalSell')
+               Left $ [(aid,evalSell')]
                where
                   evalSell' =
                      evalCommerce SellA agt (r_name,r_map) amt (p_name,planet')
@@ -120,12 +120,12 @@ evalPComm p_map
                   toPlanet = ToPlanet (tpn,plt)
                   plt      = getPlanet pn p_map   
             Look                       ->
-               Left $ (aid,doLook p_name agt)
+               Left $ [(aid,doLook p_name agt)]
 
             Zap aidATK           ->
                let agtATK = fromJustNote agtFail' (M.lookup aidATK a_map)
                    res    = evalZap (aidATK,agtATK) agt p_name dRoll p_map
-               in Left $ (aid,res)
+               in Left $ [(aid,res)]
                where
                   agtFail' = "evalPComm failed to find "    ++
                              "this agent in AgentMap "      ++
