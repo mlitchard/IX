@@ -177,26 +177,29 @@ commTransitions (LocationMap lMap) =
      eIsN lu@(LocationUpdate _) = Just lu
      eIsN _ = Nothing
 
-changeShip :: AgentMap     ->
-              (AID,Result) ->
-              Maybe DAgentMap
-changeShip (AgentMap a_map) (aid, (ChangeShip change)) =
-   let agt = fromJustNote aAgentFail (M.lookup aid a_map)
-       res = case change of
-                (WSpeed w_speed) ->
-                   setWarpSpeed w_speed agt
-                Repairing        ->
-                   setRepairField True agt
-   in Just $ DAgentMap $ SubAgentMap $ M.singleton aid res
-   where
-      aAgentFail = "changeShip failed to match aid " ++ (show aid)
-changeShip _ _ = Nothing
+changeShip :: AgentMap       ->
+              [(AID,Result)] ->
+              [Maybe DAgentMap]
+changeShip (AgentMap a_map) resList =
+  map changeShip' resList
+  where
+    changeShip' (aid, (ChangeShip change)) =
+      let agt = fromJustNote aAgentFail (M.lookup aid a_map)
+          res = case change of
+                  (WSpeed w_speed) ->
+                    setWarpSpeed w_speed agt
+                  Repairing        ->
+                    setRepairField True agt
+      in Just $ DAgentMap $ SubAgentMap $ M.singleton aid res
+      where
+        aAgentFail = "changeShip failed to match aid " ++ (show aid)
+    changeShip' _ = Nothing
 
 
 
-removeDead :: [(AID,Location)] -> (AID,Agent) -> [(AID,Location)]
-removeDead lmap' (aid,(Dead _)) = delFromAL lmap' aid
-removeDead lmap' _              = lmap'
+--removeDead :: [(AID,Location)] -> (AID,Agent) -> [(AID,Location)]
+--removeDead lmap' (aid,(Dead _)) = delFromAL lmap' aid
+--removeDead lmap' _              = lmap'
 ----------------------- Getters and Setters --------------------
 
 getName :: Agent -> ClientName

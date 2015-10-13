@@ -19,53 +19,56 @@ import qualified Data.Map.Strict as Map
 -- Takes the result of a combat check
 -- Makes am entry in DAgentMap 
 dmgToAgt :: AgentMap     ->
-            (AID,Result) ->
-            Maybe DAgentMap
-dmgToAgt (AgentMap aMap') (aid, (Damage zapped dRoll zapRes)) =
-   case zapRes of
-      Hit zapDamage    ->
-         Just      $ 
-         DAgentMap $ 
-         SubAgentMap (Map.fromList [(aid,attackerAGT),(zapped,attackedAGT)])
-         where
-            attackerAGT = setMessage youHit aAgent
-            youHit      = [AttackMSG (Left YouHit) zapped dRoll]
-            hStrength   = hull_strength $ 
-                          ship_stats    $
-                          ship zAgent
-            attackedAGT =
+            [(AID,Result)] ->
+            [Maybe DAgentMap]
+dmgToAgt (AgentMap aMap) reslist =
+  map processDamageRes reslist
+  where
+    processDamageRes (aid, (Damage zapped dRoll zapRes)) =
+      case zapRes of
+        Hit zapDamage    ->
+          Just      $ 
+          DAgentMap $ 
+          SubAgentMap (Map.fromList [(aid,attackerAGT),(zapped,attackedAGT)])
+           where
+             attackerAGT = setMessage youHit aAgent
+             youHit      = [AttackMSG (Left YouHit) zapped dRoll]
+             hStrength   = hull_strength $ 
+                           ship_stats    $
+                           ship zAgent
+             attackedAGT =
                setMessage beenHit      $ 
                setHullStrength postDMG $ 
                setDead isDead' zAgent
 
-            postDMG     = zapDamage $ hStrength
-            isDead'     = if (postDMG == 0) then True else False
-            beenHit     = if isDead'
-                          then
-                            [AttackMSG (Right BeenHitBy) aid dRoll] ++
-                            [YouDeadSon]
-                          else
-                            [AttackMSG (Right BeenHitBy) aid dRoll]
+             postDMG     = zapDamage $ hStrength
+             isDead'     = if (postDMG == 0) then True else False
+             beenHit     = if isDead'
+                           then
+                             [AttackMSG (Right BeenHitBy) aid dRoll] ++
+                             [YouDeadSon]
+                           else
+                             [AttackMSG (Right BeenHitBy) aid dRoll]
 
-      Miss dRoll' toHit ->
-         Just      $
-         DAgentMap $
-         SubAgentMap (Map.fromList [(aid,attackerAGT),(zapped,attackedAGT)])
+        Miss dRoll' toHit ->
+          Just      $
+          DAgentMap $
+          SubAgentMap (Map.fromList [(aid,attackerAGT),(zapped,attackedAGT)])
             where
-               attackerAGT =
-                  setMessage doneMissed aAgent
-               doneMissed  =
-                  [AttackMSG (Left $ YouMiss dRoll' toHit) zapped dRoll']
-               attackedAGT =
-                  setMessage failedAttack zAgent
-               failedAttack =
-                  [AttackMSG (Right $ FailedAttackBy dRoll' toHit) aid dRoll']
-   where
-      aAgent = fromJustNote aAgentFail (Map.lookup aid aMap')
-      zAgent  = fromJustNote zaFail (Map.lookup zapped aMap')
-      aAgentFail = "dmgAgt failed to lookup acting agent in aMap" ++ (show aid)
-      zaFail = "dmgToAgt failed to lookup " ++ (show zapped)
-dmgToAgt _ _ = Nothing
+              attackerAGT =
+                setMessage doneMissed aAgent
+              doneMissed  =
+                [AttackMSG (Left $ YouMiss dRoll' toHit) zapped dRoll']
+              attackedAGT =
+                setMessage failedAttack zAgent
+              failedAttack =
+                [AttackMSG (Right $ FailedAttackBy dRoll' toHit) aid dRoll']
+      where
+        aAgent = fromJustNote aAgentFail (Map.lookup aid aMap)
+        zAgent  = fromJustNote zaFail (Map.lookup zapped aMap)
+        aAgentFail = "dmgAgt failed to lookup acting agent in aMap" ++ (show aid)
+        zaFail = "dmgToAgt failed to lookup " ++ (show zapped)
+    processDamageRes _ = Nothing
 
 setDead :: Bool -> Agent -> Agent
 setDead False agt = agt

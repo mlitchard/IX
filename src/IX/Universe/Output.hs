@@ -89,11 +89,11 @@ updatePmap (LocationMap l_map) (AgentMap a_map) (PlanetMap p_map) =
    -- then remove the ones that just left. 
   in PlanetMap $ M.foldlWithKey removeDeparted deadGone l_map
 
-lookToAgt :: AgentMap -> [(AID,Result)] -> [Maybe DAgentMap]
+lookToAgt :: AgentMap -> [(AID, Result)] -> [Maybe DAgentMap]
 lookToAgt (AgentMap aMap) resList =
   map processLook resList
   where
-    processLook (aid@(AID aid'),Looked res ship) =
+    processLook (aid, (Looked res ship)) =
       let o_agent = fromJustNote aAgentFail (M.lookup aid aMap)
       in case res of
            Left pName ->
@@ -101,20 +101,23 @@ lookToAgt (AgentMap aMap) resList =
            Right hyp  ->
              Just $ DAgentMap $ mkAgent (aid,o_agent) (InHyp hyp)
       where
-        aAgentFail = "lookToAgt failed to match aid " ++ unpack aid'
+        aAgentFail = "lookToAgt failed to match aid " ++ (show aid)
     processLook _ = Nothing
 
 
-cErrToAgt :: AgentMap -> (AID,Result) -> Maybe DAgentMap
-cErrToAgt (AgentMap aMap') (aid, (CError cerr)) =
-   let oAgent  = fromJustNote cErrToAgtERR (M.lookup aid aMap')
-       naAgent = setMessage [CommandErr cerr] oAgent
-   in Just $ DAgentMap $ SubAgentMap $ M.singleton aid naAgent
-    where
-      cErrToAgtERR = "cErrToAgt failed to find "       ++
-                     "the following agent in AgentMap" ++
+cErrToAgt :: AgentMap -> [(AID,Result)] -> [Maybe DAgentMap]
+cErrToAgt (AgentMap aMap') resList =
+  map processErr resList
+  where
+    processErr (aid, (CError cerr)) =
+      let oAgent  = fromJustNote cErrToAgtERR (M.lookup aid aMap')
+          naAgent = setMessage [CommandErr cerr] oAgent
+      in Just $ DAgentMap $ SubAgentMap $ M.singleton aid naAgent
+      where
+        cErrToAgtERR = "cErrToAgt failed to find "       ++
+                       "the following agent in AgentMap" ++
                      (show aid)
-cErrToAgt _ _ = Nothing
+    processErr _ = Nothing
 
 addLanded :: M.Map PlanetName Planet    ->
              AID                        ->

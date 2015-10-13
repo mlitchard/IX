@@ -51,7 +51,7 @@ import           Data.Conduit.TMChan
 
 import qualified Data.ByteString.Char8 as BS
 import           Data.Conduit.Network
-import qualified Data.Map.Strict as Map
+import qualified Data.Map.Strict as M
 
 data SMessage                          -- Server Messages 
   = Notice BS.ByteString               -- To: Everyone From: Server
@@ -62,8 +62,8 @@ data SMessage                          -- Server Messages
   deriving Show
 
 data Server = Server
-  { clients       :: TVar (Map.Map ClientName Client)
-  , clientNames   :: TVar (Map.Map AID ClientName)
+  { clients       :: TVar (M.Map ClientName Client)
+  , clientNames   :: TVar (M.Map AID ClientName)
   , gameStateChan :: TChan GameState
   , commandChan   :: TChan [UAC]
   , gameon        :: TVar Bool
@@ -101,16 +101,16 @@ type Buffer = Event [VAC] -- the list of commands to be
                                 --  processed in a tick
 type DieRolls = Behavior [PInt]
 
-data LocationMap = LocationMap (Map.Map AID Location) deriving Show
-data ResourceMap = ResourceMap (Map.Map ResourceName Resource) deriving Show
-data PlanetMap = PlanetMap (Map.Map PlanetName Planet) deriving (Show)
+data LocationMap = LocationMap (M.Map AID Location) deriving Show
+data ResourceMap = ResourceMap (M.Map ResourceName Resource) deriving Show
+data PlanetMap = PlanetMap (M.Map PlanetName Planet) deriving (Show)
 
-data AgentMap = AgentMap (Map.Map AID Agent) deriving Show
-data SubAgentMap = SubAgentMap (Map.Map AID Agent) deriving Show
+data AgentMap = AgentMap (M.Map AID Agent) deriving Show
+data SubAgentMap = SubAgentMap (M.Map AID Agent) deriving Show
 -- DAgentMap describes what updateAMap uses to modify AgentMap
 data DAgentMap 
   = DAgentMap SubAgentMap
-  | LocationUpdate (Map.Map AID Message)
+  | LocationUpdate (M.Map AID Message)
   | ClearOut -- used when eGameState happens to clear out message
   deriving Show
 
@@ -241,8 +241,8 @@ data Result = Looked (Either PlanetName Location) Ship
 
 data ActionPartitions = ActionPartitions {
    moveAction :: Event (Maybe (AID,ToPlanetName))
-  ,psAction   :: Event (AID,Result)
-  ,hsAction   :: Event (AID,Result)
+  ,psAction   :: Event [(AID,Result)]
+  ,hsAction   :: Event [(AID,Result)]
 }
 
 data CommandError = CantMoveTo ToPlanetName

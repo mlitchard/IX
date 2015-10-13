@@ -48,11 +48,11 @@ playerInput gMaps bDieRolls eGameState eBuffer =
 
        eTransition = (commTransitions <$> bLMap') <@ eLMap'
 
-       eCError     = apply (cErrToAgt <$> bAMap') $
-                     eHypAction `unionWith` ePlanetAction
+       eCError     = apply (cErrToAgt <$> bAMap') $ 
+                     unionWith asIS eHypAction ePlanetAction
 
        eChangeShip = apply (changeShip <$> bAMap') $
-                     eHypAction `unionWith` ePlanetAction
+                     unionWith asIS eHypAction ePlanetAction
 
        eLocalMarket = apply (marketToAgt <$> bAMap') $ ePlanetAction
 

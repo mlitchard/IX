@@ -129,56 +129,60 @@ evalCommerce c_action agt (r_name,(ResourceMap r_map)) amt (p_name,planet') =
                 "in resource map\n"
 
 
-marketToAgt :: AgentMap -> (AID,Result) -> Maybe DAgentMap
-marketToAgt (AgentMap a_map) (aid@(AID aid'), MarketData p_name local_res) =
-   Just $ DAgentMap $ mkAgent (aid,o_agent) (LocalMarketData p_name local_res)
-   where
-     o_agent = fromJustNote aAgentFail (M.lookup aid a_map)
-     mkAgent :: (AID, Agent) -> Message -> SubAgentMap
-     mkAgent (aid'', o_agent ) message' = SubAgentMap (M.singleton aid'' n_agent)
-        where
+marketToAgt :: AgentMap -> [(AID,Result)] -> [Maybe DAgentMap]
+marketToAgt (AgentMap a_map) resList =
+  map marketToAgt' resList
+  where 
+    marketToAgt' (aid@(AID aid'), MarketData p_name local_res) =
+      Just $ 
+      DAgentMap (mkAgent (aid,o_agent) (LocalMarketData p_name local_res))
+      where
+        o_agent = fromJustNote aAgentFail (M.lookup aid a_map)
+        aAgentFail = "lookToAgt failed to match aid " ++ (unpack aid')
+        mkAgent :: (AID, Agent) -> Message -> SubAgentMap
+        mkAgent (aid'', o_agent ) message' = 
+          SubAgentMap (M.singleton aid'' n_agent)
+          where
           n_agent = setMessage [message'] o_agent
-     aAgentFail = "lookToAgt failed to match aid " ++ (unpack aid')
+    marketToAgt' _ = Nothing
 
-marketToAgt _ _ = Nothing
+commerceToAgt :: AgentMap          ->
+                 [(AID,Result)]    ->
+                 [Maybe DAgentMap]
+commerceToAgt (AgentMap a_map) resList =
+  map commerceToAgt' resList
+  where
+    commerceToAgt' (aid,(Commerce c_action (r_name,res) amt)) =
+      let agt = fromJustNote aAgentFail (M.lookup aid a_map)
+      in case c_action of
+           BuyR cost     -> -- code smell
+             Just $ DAgentMap (SubAgentMap (M.singleton aid (buy agt cost)))
+           SellR revenue -> -- code smell
+            Just $ DAgentMap (SubAgentMap (M.singleton aid (sell agt revenue)))
+      where
+        buy agt cost =
+          let agtLessCost = setCredits Subtract agt cost
+          in  set_agt_commodity c_action agtLessCost
+        sell agt revenue =
+          let agtAddRevenue = setCredits Add agt revenue
+          in  set_agt_commodity c_action agtAddRevenue
 
-commerceToAgt :: AgentMap     ->
-                 (AID,Result) ->
-                 Maybe DAgentMap
-commerceToAgt (AgentMap a_map) (aid,(Commerce c_action (r_name,res) amt)) =
-   let agt = fromJustNote aAgentFail (M.lookup aid a_map)
-   in case c_action of
-         BuyR cost     ->
-            Just        $ 
-            DAgentMap   $
-            SubAgentMap (M.singleton aid (buy agt cost)) -- code smell
-         SellR revenue ->
-            Just        $
-            DAgentMap   $
-            SubAgentMap (M.singleton aid (sell agt revenue)) -- code smell
-   where
-      buy agt cost =
-         let agtLessCost = setCredits Subtract agt cost
-         in  set_agt_commodity c_action agtLessCost
-      sell agt revenue =
-         let agtAddRevenue = setCredits Add agt revenue
-         in  set_agt_commodity c_action agtAddRevenue
-      set_agt_commodity :: CommerceResult -> Agent -> Agent
-      set_agt_commodity c_res
-                        agt@(Player {ship = Ship shipParts shipStats}) =
-         case c_res of
-              (BuyR _)  -> agt {ship = up_ship (+)}
-              (SellR _) -> agt {ship = up_ship (-)}
-         where
+        set_agt_commodity :: CommerceResult -> Agent -> Agent
+        set_agt_commodity c_res
+                          agt@(Player {ship = Ship shipParts shipStats}) =
+          case c_res of
+            (BuyR _)  -> agt {ship = up_ship (+)}
+            (SellR _) -> agt {ship = up_ship (-)}
+          where
             res_inv         = fromJustNote resourceFail (lookup r_name c_inv)
             c_inv           = cargo $ ship_stats'
             ship_stats'     = ship_stats (ship agt)
             up_inv  f       = addToAL c_inv r_name (res_inv `f` amt)
             set_inv up_inv' = ship_stats' {cargo = up_inv'}
             up_ship f       = Ship shipParts (set_inv (up_inv f))
-      setCredits c_act agt t_creds =
-         let creds = credits agt
-         in case c_act of
+        setCredits c_act agt t_creds =
+          let creds = credits agt
+          in case c_act of
                Subtract -> agt {credits = creds - t_creds}
                Add      -> agt {credits = creds + t_creds}
       aAgentFail      = "commerceToAgt failed to lookup" ++
