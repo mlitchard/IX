@@ -240,7 +240,7 @@ data Result = Looked (Either PlanetName Location) Ship
             | CError CommandError
 
 data ActionPartitions = ActionPartitions {
-   moveAction :: Event (Maybe (AID,ToPlanetName))
+   moveAction :: Event (Maybe [(AID,ToPlanetName)])
   ,psAction   :: Event [(AID,Result)]
   ,hsAction   :: Event [(AID,Result)]
 }

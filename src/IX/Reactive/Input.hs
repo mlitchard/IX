@@ -17,6 +17,7 @@ import IX.Reactive.Utils
 import IX.Universe.Market
 
 import Data.Either (isLeft,isRight)
+import Data.Maybe
 import Reactive.Banana (apply
                        ,unionWith
                        ,Behavior
@@ -34,13 +35,13 @@ playerInput :: GameMaps        ->
                DieRolls        ->
                Event GameState ->
                Buffer          ->
-              (Event DAgentMap,  Event (Maybe (AID,ToPlanetName)))
+              (Event [DAgentMap],  Event (Maybe [(AID,ToPlanetName)]))
 playerInput gMaps bDieRolls eGameState eBuffer =
    
    let bAMap'          = bAMap gMaps
        (bLMap',eLMap') = beLMap gMaps
 
-       eClearOut   = (Just $ ClearOut) <$ eGameState
+       eClearOut   = [(Just $ ClearOut)] <$ eGameState
        eLook       = apply (lookToAgt <$> bAMap') $
                      unionWith asIS eHypAction ePlanetAction
 
@@ -58,15 +59,22 @@ playerInput gMaps bDieRolls eGameState eBuffer =
 
        eCommerce = apply (commerceToAgt <$> bAMap') $ ePlanetAction
 
-       eAInput     = filterJust ( eClearOut   `unionWith`
-                                  eLook       `unionWith`
-                                  eDamage     `unionWith`
-                                  eTransition `unionWith`
-                                  eChangeShip `unionWith`
-                                  eCommerce   `unionWith`
-                                  eLocalMarket `unionWith`
-                                  eCError)
-
+--       eAInput     = filterJust ( eClearOut   `unionWith`
+--                                  eLook       `unionWith`
+--                                  eDamage     `unionWith`
+--                                  eTransition `unionWith`
+--                                  eChangeShip `unionWith`
+--                                  eCommerce   `unionWith`
+--                                  eLocalMarket `unionWith`
+--                                  eCError)
+       eAInput = 
+         catMaybes <$>
+           (unionWith asIS
+           (unionWith asIS ( unionWith asIS eClearOut eLook )  
+                           ( unionWith asIS eDamage eTransition ))
+  
+           (unionWith asIS ( unionWith asIS eChangeShip eCommerce )
+                           ( unionWith asIS eLocalMarket eCError )))  
        ePlanetAction = psAction actions
        eHypAction    = hsAction actions
        eMove = moveAction actions

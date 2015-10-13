@@ -26,3 +26,4 @@ fromLeft :: Either a b -> Maybe a
 fromLeft (Left a) = Just a
 fromLeft _        = Nothing
 
+  

@@ -185,11 +185,12 @@ commerceToAgt (AgentMap a_map) resList =
           in case c_act of
                Subtract -> agt {credits = creds - t_creds}
                Add      -> agt {credits = creds + t_creds}
-      aAgentFail      = "commerceToAgt failed to lookup" ++
-                        "acting agent in aMap"           ++
-                        (show aid)
-      resourceFail    = "commerceAGgt failed to find " ++ 
-                        (show r_name)                  ++
-                        "in inventory of"              ++
-                        (show aid)
-commerceToAgt _ _ = Nothing
+        aAgentFail      = "commerceToAgt failed to lookup" ++
+                          "acting agent in aMap"           ++
+                          (show aid)
+        resourceFail    = "commerceAGgt failed to find " ++ 
+                          (show r_name)                  ++
+                          "in inventory of"              ++
+                          (show aid)
+
+    commerceToAgt' _ = Nothing

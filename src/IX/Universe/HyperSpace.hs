@@ -156,7 +156,7 @@ evalMove aid agt ((ToPlanet (tpn@(ToPlanetName pn),_)), fpn) (PlanetMap pMap') =
           where
              resultErr' = CError $ CantMoveTo tpn
 
-commTransitions :: LocationMap -> Maybe DAgentMap
+commTransitions :: LocationMap -> [Maybe DAgentMap]
 commTransitions (LocationMap lMap) =
    eIsN $ LocationUpdate $ M.mapMaybe commTransitions' lMap
    where
@@ -172,10 +172,10 @@ commTransitions (LocationMap lMap) =
 
      commTransitions' _ = Nothing
 
-     eIsN :: DAgentMap -> Maybe DAgentMap
+     eIsN :: DAgentMap -> [Maybe DAgentMap]
 --     eIsN (LocationUpdate []) = Nothing
-     eIsN lu@(LocationUpdate _) = Just lu
-     eIsN _ = Nothing
+     eIsN lu@(LocationUpdate _) = [Just lu]
+     eIsN _ = [Nothing]
 
 changeShip :: AgentMap       ->
               [(AID,Result)] ->
