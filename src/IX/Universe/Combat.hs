@@ -13,23 +13,23 @@ import qualified Data.List as DL
 import Control.Applicative ((<$>))
 import IX.Universe.Utils (setMessage,intToPInt)
 import Safe (fromJustNote)
-import qualified Data.Map.Strict as Map
+import qualified Data.Map.Strict as M
 
 --dmgToAgt
 -- Takes the result of a combat check
 -- Makes am entry in DAgentMap 
-dmgToAgt :: AgentMap     ->
-            [(AID,Result)] ->
+dmgToAgt :: AgentMap         ->
+            M.Map AID Result ->
             [Maybe DAgentMap]
 dmgToAgt (AgentMap aMap) reslist =
-  map processDamageRes reslist
+  snd `fmap` M.toList (M.mapWithKey processDamageRes reslist)
   where
     processDamageRes (aid, (Damage zapped dRoll zapRes)) =
       case zapRes of
         Hit zapDamage    ->
           Just      $ 
           DAgentMap $ 
-          SubAgentMap (Map.fromList [(aid,attackerAGT),(zapped,attackedAGT)])
+          SubAgentMap (M.fromList [(aid,attackerAGT),(zapped,attackedAGT)])
            where
              attackerAGT = setMessage youHit aAgent
              youHit      = [AttackMSG (Left YouHit) zapped dRoll]
@@ -53,7 +53,7 @@ dmgToAgt (AgentMap aMap) reslist =
         Miss dRoll' toHit ->
           Just      $
           DAgentMap $
-          SubAgentMap (Map.fromList [(aid,attackerAGT),(zapped,attackedAGT)])
+          SubAgentMap (M.fromList [(aid,attackerAGT),(zapped,attackedAGT)])
             where
               attackerAGT =
                 setMessage doneMissed aAgent
@@ -64,8 +64,8 @@ dmgToAgt (AgentMap aMap) reslist =
               failedAttack =
                 [AttackMSG (Right $ FailedAttackBy dRoll' toHit) aid dRoll']
       where
-        aAgent = fromJustNote aAgentFail (Map.lookup aid aMap)
-        zAgent  = fromJustNote zaFail (Map.lookup zapped aMap)
+        aAgent = fromJustNote aAgentFail (M.lookup aid aMap)
+        zAgent  = fromJustNote zaFail (M.lookup zapped aMap)
         aAgentFail = "dmgAgt failed to lookup acting agent in aMap" ++ (show aid)
         zaFail = "dmgToAgt failed to lookup " ++ (show zapped)
     processDamageRes _ = Nothing
@@ -93,7 +93,7 @@ evalZap (aidATKD,agtATKD) agtATK pName dRoll (PlanetMap pMap') =
    let mTarget = join                  $
                  DL.find (== aidATKD) <$>
                  residents            <$>
-                 Map.lookup pName pMap'
+                 M.lookup pName pMap'
    in case mTarget of
         Just _
            | dRoll > toHit -> Damage aidATKD dRoll $ Hit (subtract wDMG)

@@ -241,8 +241,8 @@ data Result = Looked (Either PlanetName Location) Ship
 
 data ActionPartitions = ActionPartitions {
    moveAction :: Event (Maybe [(AID,ToPlanetName)])
-  ,psAction   :: Event [(AID,Result)]
-  ,hsAction   :: Event [(AID,Result)]
+  ,psAction   :: Event (M.Map AID Result)
+  ,hsAction   :: Event (M.Map AID Result)
 }
 
 data CommandError = CantMoveTo ToPlanetName

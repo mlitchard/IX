@@ -5,16 +5,12 @@ module IX.Universe.Utils
  ,mkAgent
  ,getPlanet
  ,getMessage
- ,asIS
  ) where
 
 import DataStructures.Atomic
 import DataStructures.Composite
 import qualified Data.Map.Strict as Map
 import Safe (fromJustNote)
-
-asIS :: [a] -> [a] -> [a]
-asIS xs ys = xs ++ ys
 
 intToPInt :: Int -> PInt
 intToPInt int

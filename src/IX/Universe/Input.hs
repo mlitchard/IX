@@ -73,12 +73,12 @@ sortLoc vac@(VAC (PlayerCommand  _ aid)) locs =
       locFail = "sortLoc couldn't find " ++
                 show aid                 ++
                 " in LocationMap\n"
-evalPComm :: PlanetMap             ->
-             AgentMap              ->
-             ResourceMap           ->
-             [PInt]                ->
-             (PlanetName,PCommand) ->
-             Either [(AID,Result)] [(AID,ToPlanetName)] -- This type needs 
+evalPComm :: PlanetMap               ->
+             AgentMap                ->
+             ResourceMap             ->
+             [PInt]                  ->
+             [(PlanetName,PCommand)] ->
+             [Either (AID,Result) (AID,ToPlanetName)] -- This type needs 
                                                     -- consolodation
                                                     -- (AID,ToPlanetName) is 
                                                     -- also a Result
@@ -86,60 +86,64 @@ evalPComm p_map
           (AgentMap a_map)
           r_map
           (dRoll:_)
-          (p_name,(PCommand (VAC (PlayerCommand comm aid)))) =
-   let agt    = fromJustNote agtFail (M.lookup aid a_map)
-   in case agt of
-        (Dead _)                       ->
-           Left $ [(aid, CError $ ActionCancelledDueToBeingVeryDead)]
-        _                              ->
-          case comm of
-            Repair                     ->
-               Left $ [(aid,(CError MustBeInHyperSpaceToRepair))]
-            SetSpeed warp_speed        ->
-               Left $ [(aid,evalSetSpeed warp_speed ship')]
-               where
-               ship' = ship agt
-
-            Market                     ->
-               Left $ [(aid,evalMarket p_name planet' r_map)]
-            Buy r_name amt             ->
-               Left $ [(aid,evalBuy')]
-               where
-                  evalBuy' =
+          pCommands =
+--          (p_name,(PCommand (VAC (PlayerCommand comm aid)))) =
+  map evalPComm' pCommands
+  where
+    evalPComm' :: (PlanetName, PCommand) ->
+                  Either (AID, Result) (AID, ToPlanetName)
+    evalPComm' (p_name,(PCommand (VAC (PlayerCommand comm aid)))) =
+      let agt    = fromJustNote agtFail (M.lookup aid a_map)
+      in case agt of
+         (Dead _)                       ->
+           Left $ (aid, CError $ ActionCancelledDueToBeingVeryDead)
+         _                              ->
+             case comm of
+               Repair                     ->
+                 Left $ (aid,(CError MustBeInHyperSpaceToRepair))
+               SetSpeed warp_speed        ->
+                 Left $ (aid,evalSetSpeed warp_speed ship')
+                 where
+                   ship' = ship agt
+               Market                     ->
+                 Left $ (aid,evalMarket p_name planet' r_map)
+               Buy r_name amt             ->
+                 Left $ (aid,evalBuy')
+                 where
+                   evalBuy' =
                      evalCommerce BuyA agt (r_name,r_map) amt (p_name,planet')
-
-            Sell r_name amt            ->
-               Left $ [(aid,evalSell')]
-               where
-                  evalSell' =
+               Sell r_name amt            ->
+                 Left $ (aid,evalSell')
+                 where
+                   evalSell' =
                      evalCommerce SellA agt (r_name,r_map) amt (p_name,planet')
 
-            Move tpn@(ToPlanetName pn) ->
-               evalMove aid agt (toPlanet, p_name) p_map
-               where
-                  toPlanet = ToPlanet (tpn,plt)
-                  plt      = getPlanet pn p_map   
-            Look                       ->
-               Left $ [(aid,doLook p_name agt)]
+               Move tpn@(ToPlanetName pn) ->
+                 evalMove aid agt (toPlanet, p_name) p_map
+                 where
+                   toPlanet = ToPlanet (tpn,plt)
+                   plt      = getPlanet pn p_map   
+               Look                       ->
+                 Left $ (aid,doLook p_name agt)
+               Zap aidATK           ->
+                 let agtATK = fromJustNote agtFail' (M.lookup aidATK a_map)
+                     res    = evalZap (aidATK,agtATK) agt p_name dRoll p_map
+                 in Left $ (aid,res)
+                 where
+                   agtFail' = "evalPComm failed to find "    ++
+                              "this agent in AgentMap "      ++
+                              "while trying to execute Zap " ++
+                              (show aidATK)                  ++
+                              "\n"
+      where
+        planet'  = getPlanet p_name p_map
+        planetFail = "evalPComm couldn't find planet " ++ (show p_name)
+        agtFail =
+          "evalPComm couldn't find the following Agent who is trying to" ++
+          "do an action "                                                ++
+          (show aid)                                                     ++
+          "\n"
 
-            Zap aidATK           ->
-               let agtATK = fromJustNote agtFail' (M.lookup aidATK a_map)
-                   res    = evalZap (aidATK,agtATK) agt p_name dRoll p_map
-               in Left $ [(aid,res)]
-               where
-                  agtFail' = "evalPComm failed to find "    ++
-                             "this agent in AgentMap "      ++
-                             "while trying to execute Zap " ++
-                             (show aidATK)                  ++
-                             "\n"
-   where
-      planet'  = getPlanet p_name p_map
-      planetFail = "evalPComm couldn't find planet " ++ (show p_name)
-      agtFail =
-        "evalPComm couldn't find the following Agent who is trying to" ++
-        "do an action "                                                ++
-        (show aid)                                                     ++
-        "\n"
 orderUPComm :: LocationMap -> UPlanetComm -> [(PlanetName,PCommand)]
 orderUPComm (LocationMap lMap) (UPlanetComm pCommands) =
   sortBy sortComms $ map (planetTag pSide) pCommands
