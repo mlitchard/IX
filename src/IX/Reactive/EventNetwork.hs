@@ -85,7 +85,7 @@ makeNetworkDescription params = mdo
 --      bBuffer :: Behavior [VAC]
   bBuffer         <- accumB []     $ 
                      manageBuffer <$>
-                     unionWith asIS eValidated eClearBuffer
+                     unionWith (++) eValidated eClearBuffer
 
 --      bRandom :: DieRolls 
   bRandom         <- accumB playerR $ nextPlayerRoll <$ eAInput
@@ -100,7 +100,7 @@ makeNetworkDescription params = mdo
 --      (_,locationPair) =
 --        mapAccum initLMs                             $
 --        (manageTravel <$> bPlanetMap <*> bAgentMap) <@>
---        unionWith asIS_MM eHypTravel' eMove 
+--        unionWith (M.union) eHypTravel' eMove 
 --        where
 --          eHypTravel' = eHypTravel eGameState
   let      

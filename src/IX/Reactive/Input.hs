@@ -44,17 +44,17 @@ playerInput gMaps bDieRolls eGameState eBuffer =
 
        eClearOut   = [(Just $ ClearOut)] <$ eGameState
        eLook       = apply (lookToAgt <$> bAMap') $
-                     unionWith asIS_M eHypAction ePlanetAction
+                     unionWith (M.union) eHypAction ePlanetAction
 
        eDamage     = apply (dmgToAgt <$> bAMap') $ ePlanetAction
 
        eTransition = (commTransitions <$> bLMap') <@ eLMap'
 
        eCError     = apply (cErrToAgt <$> bAMap') $ 
-                     unionWith asIS_M eHypAction ePlanetAction
+                     unionWith (M.union) eHypAction ePlanetAction
 
        eChangeShip = apply (changeShip <$> bAMap') $
-                     unionWith asIS_M eHypAction ePlanetAction
+                     unionWith (M.union) eHypAction ePlanetAction
 
        eLocalMarket = apply (marketToAgt <$> bAMap') $ ePlanetAction
 
@@ -70,12 +70,12 @@ playerInput gMaps bDieRolls eGameState eBuffer =
 --                                  eCError)
        eAInput =
          catMaybes <$> 
---           (unionWith asIS
-         (unionWith asIS ( unionWith asIS eClearOut eLook )  
-                         ( unionWith asIS eDamage eTransition ))
+         (unionWith (++)
+         (unionWith (++) ( unionWith (++) eClearOut eLook )  
+                         ( unionWith (++) eDamage eTransition ))
   
---           (unionWith asIS ( unionWith asIS eChangeShip eCommerce )
---                           ( unionWith asIS eLocalMarket eCError )))  
+         (unionWith (++) ( unionWith (++) eChangeShip eCommerce )
+                         ( unionWith (++) eLocalMarket eCError )))  
        ePlanetAction = psAction actions
        eHypAction    = hsAction actions
        eMove = moveAction actions
