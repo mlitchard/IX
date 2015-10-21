@@ -93,41 +93,27 @@ makeNetworkDescription params = mdo
 --      bAgentMap :: Behavior AgentMap
   bAgentMap       <- (accumB initAM eAgentMap)
 
---      bLocationMap :: Behavior LocationMap
---      eLocationMap :: Event ()
---      (eLocationMap,bLocationMap) =
---      locationPair :: (Event (), Behavior LocationMap)
---      (_,locationPair) =
---        mapAccum initLMs                             $
---        (manageTravel <$> bPlanetMap <*> bAgentMap) <@>
---        unionWith (M.union) eHypTravel' eMove 
---        where
---          eHypTravel' = eHypTravel eGameState
-  let      
-      bLocationMap :: Behavior LocationMap
-      bLocationMap = undefined -- snd $ liftMoment locationPair
-      eLocationMap :: Event ()
-      eLocationMap = undefined --fst $ liftMoment locationPair
---
---      bMarketRolls :: DieRolls 
+  (eLocationMap,bLocationMap) <- mapAccum initLMs                             $
+                                 (manageTravel <$> bPlanetMap <*> bAgentMap) <@>
+                                 unionWith asIS_MM eHypTravel' eMove 
+  let eHypTravel' = eHypTravel eGameState
+
   bMarketRolls <- accumB marketR   $ 
                   nextMarketRolls <$>
                   bResourceMap    <@
                   eTick
 
---      bResourceMap :: Behavior ResourceMap
+--bResourceMap :: Behavior ResourceMap
   bResourceMap <- accumB initRmap $  
                   adjustMarket   <$>
                   bMarketRolls   <@
                   eTick
 
+  let eUpdatePmap' = eUpdatePmap (bLocationMap,eLocationMap) bAgentMap
+--bPlanetMap :: Behavior PlanetMap
+  bPlanetMap <- 
+    accumB initPM eUpdatePmap'
   let
-      bPlanetMap = undefined
---      bPlanetMap :: Behavior PlanetMap
---      bPlanetMap = 
---        join (accumB initPM eUpdatePmap')
---          where
---            eUpdatePmap' = eUpdatePmap (bLocationMap,eLocationMap) bAgentMap
       gMaps = GameMaps {
                  bAMap  = bAgentMap
                 ,beLMap = (bLocationMap,eLocationMap)
