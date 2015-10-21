@@ -19,30 +19,46 @@ import Data.List.Utils (addToAL)
 import Safe (fromJustNote)
 
 
-updateAMap :: DAgentMap -> AgentMap -> AgentMap
-updateAMap (DAgentMap (SubAgentMap agts)) (AgentMap aMap) =
-  AgentMap $ M.foldlWithKey updateAgents aMap agts
+updateAMap :: [DAgentMap] -> AgentMap -> AgentMap
+--updateAMap ((DAgentMap (SubAgentMap agts)) (AgentMap aMap) =
+updateAMap [] agts =
+  agts
+
+updateAMap aMapList agts =
+--  AgentMap $ M.foldlWithKey updateAgents aMap agts
+  foldl toAGT agts aMapList
+    where
+      toAGT :: AgentMap -> DAgentMap -> AgentMap
+      toAGT (AgentMap aMap) (DAgentMap (SubAgentMap (a_map'))) =
+        AgentMap $ M.union a_map' aMap
+      toAGT (AgentMap aMap) (LocationUpdate messages) =
+        AgentMap $ M.foldlWithKey messageUpdate aMap messages 
+        where
+          messageUpdate :: M.Map AID Agent -> AID -> Message -> M.Map AID Agent
+          messageUpdate = undefined 
+      toAGT aMap ClearOut = undefined
+
 
 --updateAMap (DAgentMap (SubAgentMap [])) aMap' = aMap'
 
-updateAMap (LocationUpdate messages) (AgentMap aMap) =
-  AgentMap $ M.foldlWithKey updateMessages aMap messages
+--updateAMap (LocationUpdate messages) (AgentMap aMap) =
+--  AgentMap $ M.foldlWithKey updateMessages aMap messages
 
-updateAMap ClearOut (AgentMap aMap) =
-  AgentMap $ M.map (repairShip . markDead . removeMSG) aMap
+--updateAMap ClearOut (AgentMap aMap) =
+--  AgentMap $ M.map (repairShip . markDead . removeMSG) aMap
 
 updateAgents :: M.Map AID Agent -> AID -> Agent -> M.Map AID Agent
 updateAgents aMap aid agt = M.insert aid agt aMap
 
-updateMessages :: M.Map AID Agent -> AID -> Message -> M.Map AID Agent
-updateMessages aMap aid msg =
-  let agt = setMessage [msg] $ fromJustNote upMessageFail (M.lookup aid aMap)
-  in M.insert aid agt aMap 
-  where
-    upMessageFail =
-      "updateMessage failed to find " ++
-      show aid                        ++
-      "in agent map\n"
+--updateMessages :: M.Map AID Agent -> AID -> Message -> M.Map AID Agent
+--updateMessages aMap aid msg =
+--  let agt = setMessage [msg] $ fromJustNote upMessageFail (M.lookup aid aMap)
+--  in M.insert aid agt aMap 
+--  where
+--    upMessageFail =
+--      "updateMessage failed to find " ++
+--      show aid                        ++
+--      "in agent map\n"
 
 removeMSG :: Agent -> Agent
 removeMSG agt =
@@ -105,11 +121,11 @@ lookToAgt (AgentMap aMap) resList =
     processLook _ _ = Nothing
 
 
-cErrToAgt :: AgentMap -> [(AID,Result)] -> [Maybe DAgentMap]
+cErrToAgt :: AgentMap -> M.Map AID Result -> [Maybe DAgentMap]
 cErrToAgt (AgentMap aMap') resList =
-  map processErr resList
+  snd `fmap` M.toList (M.mapWithKey processErr resList)
   where
-    processErr (aid, (CError cerr)) =
+    processErr aid (CError cerr) =
       let oAgent  = fromJustNote cErrToAgtERR (M.lookup aid aMap')
           naAgent = setMessage [CommandErr cerr] oAgent
       in Just $ DAgentMap $ SubAgentMap $ M.singleton aid naAgent
@@ -117,7 +133,7 @@ cErrToAgt (AgentMap aMap') resList =
         cErrToAgtERR = "cErrToAgt failed to find "       ++
                        "the following agent in AgentMap" ++
                      (show aid)
-    processErr _ = Nothing
+    processErr _  _ = Nothing
 
 addLanded :: M.Map PlanetName Planet    ->
              AID                        ->

@@ -129,30 +129,31 @@ evalCommerce c_action agt (r_name,(ResourceMap r_map)) amt (p_name,planet') =
                 "in resource map\n"
 
 
-marketToAgt :: AgentMap -> [(AID,Result)] -> [Maybe DAgentMap]
+marketToAgt :: AgentMap -> M.Map AID Result -> [Maybe DAgentMap]
 marketToAgt (AgentMap a_map) resList =
-  map marketToAgt' resList
+  snd `fmap` M.toList (M.mapWithKey marketToAgt' resList)
   where 
-    marketToAgt' (aid@(AID aid'), MarketData p_name local_res) =
+    marketToAgt' aid@(AID aid') (MarketData p_name local_res) =
       Just $ 
       DAgentMap (mkAgent (aid,o_agent) (LocalMarketData p_name local_res))
       where
-        o_agent = fromJustNote aAgentFail (M.lookup aid a_map)
+        o_agent :: Agent
+        o_agent = fromJustNote aAgentFail ((M.lookup aid a_map) :: Maybe Agent)
         aAgentFail = "lookToAgt failed to match aid " ++ (unpack aid')
         mkAgent :: (AID, Agent) -> Message -> SubAgentMap
         mkAgent (aid'', o_agent ) message' = 
           SubAgentMap (M.singleton aid'' n_agent)
           where
           n_agent = setMessage [message'] o_agent
-    marketToAgt' _ = Nothing
+    marketToAgt' _ _ = Nothing
 
 commerceToAgt :: AgentMap          ->
-                 [(AID,Result)]    ->
+                 M.Map AID Result  ->
                  [Maybe DAgentMap]
 commerceToAgt (AgentMap a_map) resList =
-  map commerceToAgt' resList
+  snd `fmap` M.toList (M.mapWithKey commerceToAgt' resList)
   where
-    commerceToAgt' (aid,(Commerce c_action (r_name,res) amt)) =
+    commerceToAgt' aid (Commerce c_action (r_name,res) amt) =
       let agt = fromJustNote aAgentFail (M.lookup aid a_map)
       in case c_action of
            BuyR cost     -> -- code smell
@@ -193,4 +194,4 @@ commerceToAgt (AgentMap a_map) resList =
                           "in inventory of"              ++
                           (show aid)
 
-    commerceToAgt' _ = Nothing
+    commerceToAgt' _ _ = Nothing

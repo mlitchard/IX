@@ -16,7 +16,7 @@ import IX.Universe.Output
 import IX.Reactive.Utils
 import IX.Universe.Market
 
-import Data.Either (isLeft,isRight)
+import Data.Either (isLeft,isRight,lefts,rights)
 import Data.Maybe
 import Reactive.Banana (apply
                        ,unionWith
@@ -29,13 +29,14 @@ import Reactive.Banana (apply
                        ,(<$)
                        ,(<$>)
                        ,(<*>))
+import qualified Data.Map.Strict as M
 import Prelude hiding (unionWith)
 
 playerInput :: GameMaps        ->
                DieRolls        ->
                Event GameState ->
                Buffer          ->
-              (Event [DAgentMap],  Event (Maybe [(AID,ToPlanetName)]))
+              (Event [DAgentMap],  Event (Maybe (M.Map AID ToPlanetName)))
 playerInput gMaps bDieRolls eGameState eBuffer =
    
    let bAMap'          = bAMap gMaps
@@ -43,17 +44,17 @@ playerInput gMaps bDieRolls eGameState eBuffer =
 
        eClearOut   = [(Just $ ClearOut)] <$ eGameState
        eLook       = apply (lookToAgt <$> bAMap') $
-                     unionWith asIS eHypAction ePlanetAction
+                     unionWith asIS_M eHypAction ePlanetAction
 
        eDamage     = apply (dmgToAgt <$> bAMap') $ ePlanetAction
 
        eTransition = (commTransitions <$> bLMap') <@ eLMap'
 
        eCError     = apply (cErrToAgt <$> bAMap') $ 
-                     unionWith asIS eHypAction ePlanetAction
+                     unionWith asIS_M eHypAction ePlanetAction
 
        eChangeShip = apply (changeShip <$> bAMap') $
-                     unionWith asIS eHypAction ePlanetAction
+                     unionWith asIS_M eHypAction ePlanetAction
 
        eLocalMarket = apply (marketToAgt <$> bAMap') $ ePlanetAction
 
@@ -67,14 +68,14 @@ playerInput gMaps bDieRolls eGameState eBuffer =
 --                                  eCommerce   `unionWith`
 --                                  eLocalMarket `unionWith`
 --                                  eCError)
-       eAInput = 
-         catMaybes <$>
-           (unionWith asIS
-           (unionWith asIS ( unionWith asIS eClearOut eLook )  
-                           ( unionWith asIS eDamage eTransition ))
+       eAInput =
+         catMaybes <$> 
+--           (unionWith asIS
+         (unionWith asIS ( unionWith asIS eClearOut eLook )  
+                         ( unionWith asIS eDamage eTransition ))
   
-           (unionWith asIS ( unionWith asIS eChangeShip eCommerce )
-                           ( unionWith asIS eLocalMarket eCError )))  
+--           (unionWith asIS ( unionWith asIS eChangeShip eCommerce )
+--                           ( unionWith asIS eLocalMarket eCError )))  
        ePlanetAction = psAction actions
        eHypAction    = hsAction actions
        eMove = moveAction actions
@@ -88,8 +89,8 @@ partitionedActions  :: GameMaps ->
                        Buffer   ->
                        ActionPartitions 
 partitionedActions gMaps bDieRolls eBuffer =
-   let eMove           = Just <$> filterRight eEvalPComm
-       ePSaction       = filterLeft eEvalPComm
+   let eMove           = Just <$> M.fromList <$> rights <$> eEvalPComm
+       ePSaction       = M.fromList <$> lefts <$> eEvalPComm
        eHSaction       = evalHypComm <$>
                          bLMap'      <*>
                          bAMap'      <@>
@@ -115,7 +116,7 @@ eUpdatePmap :: (Behavior LocationMap, Event ()) ->
 eUpdatePmap (bLMap,eLMap) bAMap' =
    (updatePmap <$> bLMap <*> bAMap') <@ eLMap
 
-eHypTravel :: Event GameState -> Event (Maybe (AID,ToPlanetName))
+eHypTravel :: Event GameState -> Event (Maybe (M.Map AID ToPlanetName))
 eHypTravel eGameState = Nothing <$ eGameState
 
 -- much like split

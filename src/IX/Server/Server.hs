@@ -133,7 +133,7 @@ handleMessage server client@Client{..} = awaitForever $ \case
   Broadcast name msg -> output $ "<" <++> name <++> ">: " <++> msg
   SCommand msg       -> case BS.words msg of
     ["/start"] -> do
-      ok <- liftIO $ atomically $ gameManager server
+      ok <- liftIO (gameManager server)
       unless ok $ output $ "Game already started"
     
     ["/tell", who, what] -> do
@@ -171,20 +171,20 @@ handleMessage server client@Client{..} = awaitForever $ \case
 (<++>) = BS.append
 
 gameManager server@Server{..} = do
-  gameStarted <- readTVar gameon
-  anMap       <- readTVar clientNames
-  aids        <- M.keys <$> readTVar clientNames
+  gameStarted <- atomically (readTVar gameon)
+  anMap       <- atomically (readTVar clientNames)
+  aids        <- atomically (M.keys <$> readTVar clientNames)
   if gameStarted == True then
     return gameStarted
   else do
     let anMap_keys = M.keys anMap
-        newMaps    = initMaps anMap anMap_keys
+        --newMaps    = initMaps anMap anMap_keys
         initMaps   =
           InitMaps {
               aMap = initAmap anMap  
             , pMap = initPmap aids
             , lMap = initLmap aids
           } 
-    _ <- gameloop commandChan gameStateChan newMaps
+    _ <- (gameloop commandChan gameStateChan initMaps)
     return True
 commandManager = undefined

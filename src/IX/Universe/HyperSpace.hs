@@ -25,82 +25,79 @@ import Data.List.Utils (delFromAL)
 import Control.Applicative ((<$>))
 import Control.Monad (join)
 import Data.Maybe (catMaybes)
-import qualified Data.Map as M
+import qualified Data.Map.Strict as M
 import Debug.Trace
 
-manageTravel :: PlanetMap              ->
-                AgentMap               ->
-                Maybe (AID,ToPlanetName) ->
-                LocationMap            ->
+manageTravel :: PlanetMap                      ->
+                AgentMap                       ->
+                Maybe (M.Map AID ToPlanetName) ->
+                LocationMap                    ->
                 ((),LocationMap)
 manageTravel (pMap)
              _
-             (Just (aid,tpn))
-             (LocationMap lMap) =
---   let upLmap = LocationMap $ M.map (updateLocationMap aid) lMap
---   in ((),upLmap)
-   let upLmap = LocationMap $ M.insert aid newLoc lMap 
-   in ((),upLmap)
-   where
-     ((Location (Left (pn, _)))) = fromJustNote aidNotFound (M.lookup aid lMap)
-     newLoc = Location $ Right $ (hSpace, Launched)
-     hSpace = HyperSpace {
-       destination       = tpn
-      ,origin            = fpn
-      ,totalDistance     = distanceTo
-      ,distanceTraversed = 0 :: PInt
-     }
-     distanceTo = getDistanceTo tpn $ FromPlanet (fpn,fp)
-     fp         = getPlanet pn pMap
-     fpn        = FromPlanetName pn
-     aidNotFound = "manageTravel failed to find " ++ 
-                   (show aid)                     ++
-                   "in LocationMap\n"
- 
+             (Just transit_map)
+             (LocationMap l_map) =
+  let up_lmap = LocationMap $ M.foldrWithKey upLMap l_map transit_map  
+  in ((),up_lmap)
+  where
+    upLMap :: AID -> ToPlanetName -> M.Map AID Location -> M.Map AID Location
+    upLMap aid tpn l_map =
+      let ((Location (Left (pn, _)))) = 
+            fromJustNote aidNotFound (M.lookup aid l_map)
+          newLoc                      = Location $ Right $ (hSpace, Launched)
+          hSpace                      = HyperSpace {
+                                           destination       = tpn
+                                          ,origin            = fpn
+                                          ,totalDistance     = distanceTo
+                                          ,distanceTraversed = 0 :: PInt
+                                        }
+          distanceTo                  = getDistanceTo tpn $ FromPlanet (fpn,fp)
+          fp                          = getPlanet pn pMap
+          fpn                         = FromPlanetName pn
+          aidNotFound                 = "manageTravel failed to find " ++ 
+                                        (show aid)                     ++
+                                        "in LocationMap\n"
+      in M.insert aid newLoc l_map
 manageTravel _      -- No need for a PlanetMap 
-            (AgentMap aMap)
-            Nothing -- a tick must have happened if this matches
-            (LocationMap lMap)  =
-   (,) ()
-   (LocationMap                          $
-   M.mapWithKey (updateLocationMap aMap) $
-   M.foldlWithKey removeDead lMap aMap)
+             (AgentMap aMap)
+             Nothing -- a tick must have happened if this matches
+             (LocationMap lMap)  =
+  (,) ()
+  (LocationMap                          $
+  M.mapWithKey (updateLocationMap aMap) $
+  M.foldlWithKey removeDead lMap aMap)
+  where
+    removeDead lmap' aid (Dead _) = M.delete aid lmap'
+    removeDead lmap' _ _          = lmap'
 
-      where
-         removeDead lmap' aid (Dead _) = M.delete aid lmap'
-         removeDead lmap' _ _          = lmap'
+    updateLocationMap _ _ (Location (Left ( pName,Landed))) =
+      (Location (Left (pName,PlanetSide)))
+    updateLocationMap _ _ loc@(Location (Left (_,PlanetSide))) =
+      loc
+    updateLocationMap a_map aid (Location (Right (hSpace,tState))) =
+      let (ToPlanetName dest) = destination hSpace
+          tDist               = totalDistance hSpace
+          traversed           = distanceTraversed hSpace
+      in case tState of
+           Launched     -> updatedHSpace
+           InHyperSpace -> if (tDist == traversed)
+                           then landed
+                           else updatedHSpace
+                           where
+                             landed = (Location $ Left $ (dest,Landed))
+           where
+             ship_speed =
+               case (findSpeed) of
+                 Just speed' -> speed'
+                 Nothing     -> Turtle -- how did this happen?
 
-         updateLocationMap _ _ (Location (Left ( pName,Landed))) =
-            (Location (Left (pName,PlanetSide)))
-         updateLocationMap _ _ loc@(Location (Left (_,PlanetSide))) =
-            loc
-         updateLocationMap a_map aid (Location (Right (hSpace,tState))) =
-            let (ToPlanetName dest) = destination hSpace
-                tDist               = totalDistance hSpace
-                traversed           = distanceTraversed hSpace
-            in case tState of
-              Launched     -> updatedHSpace
-              InHyperSpace -> if (tDist == traversed)
-                              then landed
-                              else updatedHSpace
-                              where
-                                 landed = (Location $ Left $ (dest,Landed))
-              where
-                 ship_speed =
-                    case (findSpeed) of
-                       Just speed' -> speed'
-                       Nothing     -> Turtle -- how did this happen?
-
-                 updatedHSpace =
-                    Location $ Right (incDist hSpace ship_speed,InHyperSpace)
-                 findSpeed = join               $
-                             warp_speed        <$>
-                             ship_stats        <$>
-                             ship              <$>
-                             M.lookup aid a_map
-                               
-      
-
+             updatedHSpace =
+               Location $ Right (incDist hSpace ship_speed,InHyperSpace)
+             findSpeed = join               $
+                         warp_speed        <$>
+                         ship_stats        <$>
+                         ship              <$>
+                         M.lookup aid a_map
 
 evalHyp :: M.Map AID Location -> M.Map AID Agent -> HCommand -> (AID,Result)
 evalHyp l_map a_map (HCommand (VAC (PlayerCommand comm aid))) =
@@ -117,10 +114,10 @@ evalHyp l_map a_map (HCommand (VAC (PlayerCommand comm aid))) =
                 Market     -> CError NoBusinessInHyperSpace
    in (aid,res)
       where
-         locFail = "evalHypComm did not find " ++
+         locFail = "evalHyp did not find " ++
                    show aid                    ++
                    "in LocationMap"
-         agtFail = "evalHypComm did not find " ++
+         agtFail = "evalHyp did not find " ++
                    show aid                    ++
                    "in AgentMap"
 
@@ -177,13 +174,13 @@ commTransitions (LocationMap lMap) =
      eIsN lu@(LocationUpdate _) = [Just lu]
      eIsN _ = [Nothing]
 
-changeShip :: AgentMap       ->
-              [(AID,Result)] ->
+changeShip :: AgentMap         ->
+              M.Map AID Result ->
               [Maybe DAgentMap]
 changeShip (AgentMap a_map) resList =
-  map changeShip' resList
+  snd `fmap` M.toList (M.mapWithKey changeShip' resList)
   where
-    changeShip' (aid, (ChangeShip change)) =
+    changeShip' aid (ChangeShip change) =
       let agt = fromJustNote aAgentFail (M.lookup aid a_map)
           res = case change of
                   (WSpeed w_speed) ->
@@ -193,7 +190,7 @@ changeShip (AgentMap a_map) resList =
       in Just $ DAgentMap $ SubAgentMap $ M.singleton aid res
       where
         aAgentFail = "changeShip failed to match aid " ++ (show aid)
-    changeShip' _ = Nothing
+    changeShip' _ _ = Nothing
 
 
 

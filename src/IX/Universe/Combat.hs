@@ -24,7 +24,7 @@ dmgToAgt :: AgentMap         ->
 dmgToAgt (AgentMap aMap) reslist =
   snd `fmap` M.toList (M.mapWithKey processDamageRes reslist)
   where
-    processDamageRes (aid, (Damage zapped dRoll zapRes)) =
+    processDamageRes aid  (Damage zapped dRoll zapRes) =
       case zapRes of
         Hit zapDamage    ->
           Just      $ 
@@ -68,7 +68,7 @@ dmgToAgt (AgentMap aMap) reslist =
         zAgent  = fromJustNote zaFail (M.lookup zapped aMap)
         aAgentFail = "dmgAgt failed to lookup acting agent in aMap" ++ (show aid)
         zaFail = "dmgToAgt failed to lookup " ++ (show zapped)
-    processDamageRes _ = Nothing
+    processDamageRes _ _ = Nothing
 
 setDead :: Bool -> Agent -> Agent
 setDead False agt = agt
@@ -76,9 +76,9 @@ setDead True agt  = agt {isDead = True}
 
 setHullStrength :: HullStrength -> Agent -> Agent
 setHullStrength hs agt = agt { ship = new_ship }
-   where
-      (Ship ship_parts ship_stats) = ship agt
-      new_ship = (Ship ship_parts ship_stats {hull_strength = hs})
+  where
+    (Ship ship_parts ship_stats) = ship agt
+    new_ship = (Ship ship_parts ship_stats {hull_strength = hs})
 
 -- evaluates an attack attempt
 

@@ -2,6 +2,7 @@ module DataStructures.Composite
    ( ResourceMap (..)
    , Resource (..)
    , AgentMap(..)
+   , ResultMap (..)
    , DAgentMap(..)
    , SubAgentMap(..)
    , GameMaps (..)
@@ -107,6 +108,8 @@ data PlanetMap = PlanetMap (M.Map PlanetName Planet) deriving (Show)
 
 data AgentMap = AgentMap (M.Map AID Agent) deriving Show
 data SubAgentMap = SubAgentMap (M.Map AID Agent) deriving Show
+
+data ResultMap = ResultMap [(AID,Result)] 
 -- DAgentMap describes what updateAMap uses to modify AgentMap
 data DAgentMap 
   = DAgentMap SubAgentMap
@@ -240,7 +243,7 @@ data Result = Looked (Either PlanetName Location) Ship
             | CError CommandError
 
 data ActionPartitions = ActionPartitions {
-   moveAction :: Event (Maybe [(AID,ToPlanetName)])
+   moveAction :: Event (Maybe (M.Map AID ToPlanetName))
   ,psAction   :: Event (M.Map AID Result)
   ,hsAction   :: Event (M.Map AID Result)
 }

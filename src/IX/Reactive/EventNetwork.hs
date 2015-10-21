@@ -1,4 +1,4 @@
-{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE ScopedTypeVariables, RecursiveDo #-}
 module IX.Reactive.EventNetwork
    (gameloop) where
 
@@ -6,7 +6,7 @@ module IX.Reactive.EventNetwork
 import DataStructures.Composite
 import DataStructures.Atomic
 import IX.Reactive.Input
-import IX.Reactive.Utils (timer,mkRoll)
+import IX.Reactive.Utils (timer,mkRoll,asIS,asIS_M,asIS_MM)
 import IX.Universe.Utils (intToPInt,nextPlayerRoll)
 import IX.Reactive.Output (writeOut)
 import IX.Universe.Output (updateAMap)
@@ -15,11 +15,13 @@ import IX.Universe.Market (nextMarketRolls,adjustMarket)
 import IX.Universe.HyperSpace (manageTravel)
 import Reactive.Banana
 import Reactive.Banana.Frameworks
-import Control.Monad (forever)
+import Control.Monad (forever,join)
+import Control.Monad.Fix 
 import Control.Concurrent (forkIO)
 import Control.Monad.STM (atomically)
 import Control.Concurrent.STM.TChan
 import System.Random
+import qualified Data.Map.Strict as M
 
 
 gameloop :: TChan [UAC]       ->
@@ -27,108 +29,117 @@ gameloop :: TChan [UAC]       ->
             InitMaps          ->
             IO ()
 gameloop commandChannel gsChannel initMaps' = do
-   (addCommandEvent,fireCommand) <- newAddHandler
-   (tickHandler, tickSink)       <- newAddHandler
-   gen1                          <- getStdGen
-   gen2                          <- getStdGen
-   let params = 
-          Parameters {
-             input         = addCommandEvent
-            ,output        = gsChannel
-            ,initMaps      = initMaps'
-            ,tick          = tickHandler
-            ,playerRolls   = mkRoll gen1
-            ,marketRolls   = mkRoll gen2
-          }
-               
+  (addCommandEvent,fireCommand) <- newAddHandler
+  (tickHandler, tickSink)       <- newAddHandler
+  gen1                          <- getStdGen
+  gen2                          <- getStdGen
+  let params = Parameters {
+         input         = addCommandEvent
+        ,output        = gsChannel
+        ,initMaps      = initMaps'
+        ,tick          = tickHandler
+        ,playerRolls   = mkRoll gen1
+        ,marketRolls   = mkRoll gen2
+      }
 
-   networkDescr <- compile $ makeNetworkDescription params
-   appendFile "gameloop.txt" "gameloop called\n"
-   actuate networkDescr
-   _ <- forkIO $ forever (atomically (readTChan commandChannel) >>= fireCommand)
-   _ <- forkIO $ forever $ (timer tickSize) >>= tickSink
-   return ()
+  networkDescr <- compile $ makeNetworkDescription params
+  appendFile "gameloop.txt" "gameloop called\n"
+  actuate networkDescr
+  _ <- forkIO $ forever (atomically (readTChan commandChannel) >>= fireCommand)
+  _ <- forkIO $ forever $ (timer tickSize) >>= tickSink
+  return ()
 
-makeNetworkDescription :: forall t . Frameworks t => Parameters -> Moment t ()
-makeNetworkDescription params = do
-   eInput <- fromAddHandler (input params)
-   eTick <- fromAddHandler (tick params)
+makeNetworkDescription :: Parameters -> MomentIO ()
+makeNetworkDescription params = mdo
+  eInput <- fromAddHandler (input params)
+  eTick <- fromAddHandler (tick params)
+  let 
+      gsChannel = output params
+      initPM    = pMap $ initMaps params
+      initLMs   = lMap $ initMaps params
+      initAM    = aMap  $ initMaps params
+      playerR   = playerRolls params
+      marketR   = marketRolls params
 
-   let gsChannel  = output params
-       initAM     = aMap  $ initMaps params
-       initPM     = pMap  $ initMaps params
-       initLMs    = lMaps $ initMaps params
-       playerR    = playerRolls params
-       marketR    = marketRolls params
-       gMaps      = GameMaps {
-                       bAMap  = bAgentMap
-                      ,beLMap = (bLocationMap,eLocationMap)
-                      ,bRMap  = bResourceMap
-                      ,bPMap  = bPlanetMap
-                    }
 
        -- UAC to VAC means the elimination of non-existent AIDs
-       eValidated :: Event t [VAC]
-       eValidated = toVAC <$> filterApply (agentExists <$> bAgentMap) eInput
-
--- bBuffer populated by eValidated and emptied by eClearOut
-       bBuffer :: Behavior t [VAC]
-       bBuffer = accumB [] $ manageBuffer <$> eValidated `union` eClearBuffer
+      eValidated :: Event [VAC]
+      eValidated = toVAC <$> filterApply (agentExists <$> bAgentMap) eInput
 
 -- eClearBuffer happens when eBuffer happens
-       eClearBuffer :: Event t [VAC]
-       eClearBuffer = [] <$ eBuffer
+      eClearBuffer :: Event [VAC]
+      eClearBuffer = [] <$ eBuffer
 
 -- eBuffer happens when eTick happens 
-       eBuffer ::Event t [VAC]
-       eBuffer = bBuffer <@ eTick
+      eBuffer ::Event [VAC]
+      eBuffer = bBuffer <@ eTick
+
+      eMove   :: Event (Maybe (M.Map AID ToPlanetName))
+      eAInput :: Event [DAgentMap]
+      (eAInput,eMove) = playerInput gMaps bRandom eGameState eBuffer
 
 
-       bRandom :: DieRolls t
-       bRandom = accumB playerR $ nextPlayerRoll <$ eAInput
+      eAgentMap :: Event (AgentMap -> AgentMap)
+      eAgentMap = updateAMap <$> eAInput
+-- bBuffer populated by eValidated and emptied by eClearOut
+--      bBuffer :: Behavior [VAC]
+  bBuffer         <- accumB []     $ 
+                     manageBuffer <$>
+                     unionWith asIS eValidated eClearBuffer
 
-       bMarketRolls :: DieRolls t
-       bMarketRolls = accumB marketR   $
-                      nextMarketRolls <$>
-                      bResourceMap    <@
-                      eTick
+--      bRandom :: DieRolls 
+  bRandom         <- accumB playerR $ nextPlayerRoll <$ eAInput
 
-       bAgentMap :: Behavior t AgentMap
-       bAgentMap = accumB initAM eAgentMap
+--      bAgentMap :: Behavior AgentMap
+  bAgentMap       <- (accumB initAM eAgentMap)
 
-       eAgentMap :: Event t (AgentMap -> AgentMap)
-       eAgentMap = updateAMap <$> eAInput
+--      bLocationMap :: Behavior LocationMap
+--      eLocationMap :: Event ()
+--      (eLocationMap,bLocationMap) =
+--      locationPair :: (Event (), Behavior LocationMap)
+--      (_,locationPair) =
+--        mapAccum initLMs                             $
+--        (manageTravel <$> bPlanetMap <*> bAgentMap) <@>
+--        unionWith asIS_MM eHypTravel' eMove 
+--        where
+--          eHypTravel' = eHypTravel eGameState
+  let      
+      bLocationMap :: Behavior LocationMap
+      bLocationMap = undefined -- snd $ liftMoment locationPair
+      eLocationMap :: Event ()
+      eLocationMap = undefined --fst $ liftMoment locationPair
+--
+--      bMarketRolls :: DieRolls 
+  bMarketRolls <- accumB marketR   $ 
+                  nextMarketRolls <$>
+                  bResourceMap    <@
+                  eTick
 
-       bPlanetMap :: Behavior t PlanetMap
-       bPlanetMap = accumB initPM eUpdatePmap'
-          where
-             eUpdatePmap' = eUpdatePmap (bLocationMap,eLocationMap) bAgentMap
+--      bResourceMap :: Behavior ResourceMap
+  bResourceMap <- accumB initRmap $  
+                  adjustMarket   <$>
+                  bMarketRolls   <@
+                  eTick
 
-       bResourceMap :: Behavior t ResourceMap
-       bResourceMap = accumB initRmap $
-                      adjustMarket   <$>
-                      bMarketRolls   <@
-                      eTick
-
-       bLocationMap :: Behavior t LocationMap
-       eLocationMap :: Event t ()
-       (eLocationMap,bLocationMap) =
-          mapAccum initLMs                             $
-          (manageTravel <$> bPlanetMap <*> bAgentMap) <@>
-          eHypTravel' `unionWith asIS` eMove
-          where
-             eHypTravel' = eHypTravel eGameState
-
-       eMove   :: Event t (Maybe (AID,ToPlanetName))
-       eAInput :: Event t DAgentMap
-       (eAInput,eMove) = playerInput gMaps bRandom eGameState eBuffer
-
-       eGameState :: Event t GameState
-       eGameState =  GameState  <$>
-                     bAgentMap  <*>
-                     bPlanetMap <@
-                     eTick
-   reactimate $ (writeOut gsChannel) <$> eGameState
+  let
+      bPlanetMap = undefined
+--      bPlanetMap :: Behavior PlanetMap
+--      bPlanetMap = 
+--        join (accumB initPM eUpdatePmap')
+--          where
+--            eUpdatePmap' = eUpdatePmap (bLocationMap,eLocationMap) bAgentMap
+      gMaps = GameMaps {
+                 bAMap  = bAgentMap
+                ,beLMap = (bLocationMap,eLocationMap)
+                ,bRMap  = bResourceMap
+                ,bPMap  = bPlanetMap
+              }
+  --eGameState :: Event GameState
+      eGameState = GameState  <$>
+                   bAgentMap  <*>
+                   bPlanetMap <@
+                   eTick
+  reactimate $ (writeOut gsChannel) <$> eGameState
 
 
 
