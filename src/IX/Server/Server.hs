@@ -9,6 +9,7 @@ import           DataStructures.Atomic
 import           IX.Universe.Input
 import           IX.Reactive.EventNetwork (gameloop)
 import           Conduit
+import           Safe (readMay,fromJustNote)
 import           Data.Conduit
 import           Data.Functor ((<$>))
 import           Data.Conduit.TMChan
@@ -36,21 +37,20 @@ server port' = do
 clientSink :: Client -> Sink BS.ByteString IO ()
 clientSink Client{..} = mapC SCommand =$ sinkTMChan clientChan True
 
-
 newServer :: IO Server
 newServer = do
   cs  <- newTVarIO M.empty
   cns <- newTVarIO M.empty
-  gsc <- newTChanIO 
+  gs <- newTMVarIO 
   cc  <- newTChanIO
   go  <- newTVarIO False
   return 
     Server { 
-       clients       = cs
-     , clientNames   = cns
-     , gameStateChan = gsc
-     , commandChan   = cc
-     , gameon        = go
+       clients         = cs
+     , clientNames     = cns -- client sode mapping names to aid
+     , gameState_TMvar = gs
+     , commandChan     = cc
+     , gameon          = go
     }
 
 readName :: Server -> AppData -> ConduitM BS.ByteString BS.ByteString IO Client
@@ -82,8 +82,9 @@ checkAddClient server@Server{..} name app = atomically $ do
     let aid = AID (T.pack $ show $ (((M.size camap) -1) + 100))
     client <- newClient name app
     writeTVar clients (M.insert name client clientmap)
-    writeTVar clientNames    (M.insert aid name camap)
-    broadcast server  (Notice (name <++> " has connected"))
+    writeTVar clientNames    (M.insert name aid camap)
+    let c_msg = BS.pack (show aid ++ " has connected")
+    broadcast server  (Notice (name <++> c_msg))
     return (Just client)
 
 broadcast :: Server -> SMessage -> STM ()
@@ -99,9 +100,15 @@ runClient clientSource server client@Client{..} =
 
 removeClient :: Server -> Client -> IO ()
 removeClient server@Server{..} client@Client{..} = atomically $ do
+  client_names <- (readTVar clientNames)
+  let aid = fromJustNote clientFail (M.lookup clientName client_names)
   modifyTVar' clients (M.delete clientName)
-  modifyTVar' clientNames (M.filter (== clientName))
+  modifyTVar' clientNames (M.filter (== aid))
   broadcast server $ Notice (clientName <++> " has disconnected")
+  where
+    clientFail = "removeClient failed to find aid " ++
+                 "which should have been player "   ++
+                 (BS.unpack clientName)                
 
 sendMessage :: Client -> SMessage -> STM ()
 sendMessage Client{..} msg = writeTMChan clientChan msg
@@ -134,7 +141,7 @@ handleMessage server client@Client{..} = awaitForever $ \case
   SCommand msg       -> case BS.words msg of
     ["/start"] -> do
       ok <- liftIO (gameManager server)
-      unless ok $ output $ "Game already started"
+      if ok then output ("Starting Game") else output ("Game already started") 
     
     ["/tell", who, what] -> do
       ok <- liftIO $ atomically $ sendToName server who $ Tell clientName what
@@ -163,8 +170,13 @@ handleMessage server client@Client{..} = awaitForever $ \case
     ws ->
       if BS.head (head ws) == '/' then
         output $ "Unrecognized command: " <++> msg
-      else
-        liftIO $ atomically $ commandManager server $ GCommand clientName msg
+      else do
+        res <- liftIO                $
+               atomically            $
+               commandManager server $
+               GCommand clientName msg
+        output $  BS.pack ("Game Command Debug: " ++ res)
+        return ()
   where
     output s = yield (s <++> "\n")
 
@@ -173,9 +185,9 @@ handleMessage server client@Client{..} = awaitForever $ \case
 gameManager server@Server{..} = do
   gameStarted <- atomically (readTVar gameon)
   anMap       <- atomically (readTVar clientNames)
-  aids        <- atomically (M.keys <$> readTVar clientNames)
+  aids        <- atomically (M.elems <$> readTVar clientNames)
   if gameStarted == True then
-    return gameStarted
+    return False -- code smell
   else do
     let anMap_keys = M.keys anMap
         --newMaps    = initMaps anMap anMap_keys
@@ -186,5 +198,15 @@ gameManager server@Server{..} = do
             , lMap = initLmap aids
           } 
     _ <- (gameloop commandChan gameStateChan initMaps)
+    _ <- atomically (swapTVar gameon True) 
+    forkIO $ responseManager server
     return True
-commandManager = undefined
+
+commandManager Server{..} (GCommand c_name msg) = 
+  let read = (readMay $ BS.unpack msg) :: Maybe Command
+  in case read of
+       Just command -> return $ show command
+       Nothing      -> return "Invalid Command"
+
+responseManager = undefined
+  

@@ -59,15 +59,16 @@ data SMessage                          -- Server Messages
   | Tell ClientName BS.ByteString      -- Talk smack to other players, of course
   | Broadcast ClientName BS.ByteString -- To: Everyone From: Game
   | SCommand BS.ByteString             -- Server Command
+  | GTell ClientName BS.ByteString     -- To: Player From: Game
   | GCommand ClientName BS.ByteString  -- Game Command Soon To Be JSOn
   deriving Show
 
 data Server = Server
-  { clients       :: TVar (M.Map ClientName Client)
-  , clientNames   :: TVar (M.Map AID ClientName)
-  , gameStateChan :: TChan GameState
-  , commandChan   :: TChan [UAC]
-  , gameon        :: TVar Bool
+  { clients         :: TVar (M.Map ClientName Client)
+  , clientNames     :: TVar (M.Map ClientName AID) -- for client side
+  , gameState_TMVar :: TMVar GameState
+  , commandChan     :: TChan [UAC]
+  , gameon          :: TVar Bool
   }
 
 data Client = Client

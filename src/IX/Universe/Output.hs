@@ -29,36 +29,26 @@ updateAMap aMapList agts =
   foldl toAGT agts aMapList
     where
       toAGT :: AgentMap -> DAgentMap -> AgentMap
-      toAGT (AgentMap aMap) (DAgentMap (SubAgentMap (a_map'))) =
-        AgentMap $ M.union a_map' aMap
-      toAGT (AgentMap aMap) (LocationUpdate messages) =
-        AgentMap $ M.foldlWithKey messageUpdate aMap messages 
-        where
-          messageUpdate :: M.Map AID Agent -> AID -> Message -> M.Map AID Agent
-          messageUpdate = undefined 
-      toAGT aMap ClearOut = undefined
-
-
---updateAMap (DAgentMap (SubAgentMap [])) aMap' = aMap'
-
---updateAMap (LocationUpdate messages) (AgentMap aMap) =
---  AgentMap $ M.foldlWithKey updateMessages aMap messages
-
---updateAMap ClearOut (AgentMap aMap) =
---  AgentMap $ M.map (repairShip . markDead . removeMSG) aMap
+      toAGT (AgentMap a_map) (DAgentMap (SubAgentMap (a_map'))) =
+        AgentMap $ M.union a_map' a_map
+      toAGT (AgentMap a_map) (LocationUpdate messages) =
+        AgentMap $ M.foldlWithKey messageUpdate a_map messages 
+      toAGT (AgentMap a_map) ClearOut = 
+        AgentMap $ M.map (repairShip . markDead . removeMSG) a_map
 
 updateAgents :: M.Map AID Agent -> AID -> Agent -> M.Map AID Agent
 updateAgents aMap aid agt = M.insert aid agt aMap
 
---updateMessages :: M.Map AID Agent -> AID -> Message -> M.Map AID Agent
---updateMessages aMap aid msg =
---  let agt = setMessage [msg] $ fromJustNote upMessageFail (M.lookup aid aMap)
---  in M.insert aid agt aMap 
---  where
---    upMessageFail =
---      "updateMessage failed to find " ++
---      show aid                        ++
---      "in agent map\n"
+messageUpdate :: M.Map AID Agent -> AID -> Message -> M.Map AID Agent
+messageUpdate a_map aid msg =
+  let 
+      o_agt  = fromJustNote agtFail (M.lookup aid a_map)
+      n_agt  = setMessage [msg] o_agt
+  in M.insert aid n_agt a_map
+    where
+      agtFail = "updateAMap failed to find " ++
+                (show aid)                   ++
+                " in agent map\n"
 
 removeMSG :: Agent -> Agent
 removeMSG agt =

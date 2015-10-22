@@ -187,18 +187,23 @@ doLook p_name agt = Looked (Left p_name) $ ship agt
 
 
 
-initAmap :: M.Map AID ClientName -> AgentMap
-initAmap naMap' = AgentMap $ M.map initAMap' naMap'
+initAmap :: M.Map ClientName AID -> AgentMap
+initAmap na_map = AgentMap $ 
+                  M.fromList $
+                  map initAMap' $
+                  M.toList na_map
    where
-     initAMap' name = 
-       Player {
-           aName    = name
-         , msg      = [PlanetLoc Vulcan]
-         , ship     = mkShip
-         , credits  = 50000
-         , debt     = 50000
-         , isDead   = False
-       }
+     initAMap' (name,aid) =
+       let player =  
+             Player {
+                 aName    = name
+               , msg      = [PlanetLoc Vulcan]
+               , ship     = mkShip
+               , credits  = 50000
+               , debt     = 50000
+               , isDead   = False
+             }
+       in (aid,player) 
      mkShip = Ship shipParts shipStats
         where
            shipParts = ShipParts {
