@@ -15,6 +15,7 @@ import IX.Universe.Market (nextMarketRolls,adjustMarket)
 import IX.Universe.HyperSpace (manageTravel)
 import Reactive.Banana
 import Reactive.Banana.Frameworks
+import           Control.Concurrent.STM
 import Control.Monad (forever,join)
 import Control.Monad.Fix 
 import Control.Concurrent (forkIO)
@@ -25,7 +26,7 @@ import qualified Data.Map.Strict as M
 
 
 gameloop :: TChan [UAC]       ->
-            TChan GameState   ->
+            TMVar GameState   ->
             InitMaps          ->
             IO ()
 gameloop commandChannel gsChannel initMaps' = do

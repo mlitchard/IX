@@ -22,6 +22,7 @@ import qualified Data.ByteString.Char8 as BS
 import           Text.Printf              (printf)
 import           Data.Word8               (_cr)
 import           Control.Monad
+import           Control.Concurrent (forkIO)
 import           Control.Concurrent.Async (concurrently)
 import           Control.Exception        (finally)
 
@@ -41,14 +42,14 @@ newServer :: IO Server
 newServer = do
   cs  <- newTVarIO M.empty
   cns <- newTVarIO M.empty
-  gs <- newTMVarIO 
+  gs <- newEmptyTMVarIO :: IO (TMVar GameState)
   cc  <- newTChanIO
   go  <- newTVarIO False
   return 
     Server { 
        clients         = cs
      , clientNames     = cns -- client sode mapping names to aid
-     , gameState_TMvar = gs
+     , gameState_TMVar = gs
      , commandChan     = cc
      , gameon          = go
     }
@@ -197,9 +198,9 @@ gameManager server@Server{..} = do
             , pMap = initPmap aids
             , lMap = initLmap aids
           } 
-    _ <- (gameloop commandChan gameStateChan initMaps)
+    _ <- (gameloop commandChan gameState_TMVar initMaps)
     _ <- atomically (swapTVar gameon True) 
-    forkIO $ responseManager server
+    forkIO (atomically $ responseManager server)
     return True
 
 commandManager Server{..} (GCommand c_name msg) = 
@@ -208,5 +209,11 @@ commandManager Server{..} (GCommand c_name msg) =
        Just command -> return $ show command
        Nothing      -> return "Invalid Command"
 
-responseManager = undefined
+responseManager :: Server -> STM ()
+responseManager Server{..} = forever $ do
+  g_state <- takeTMVar gameState_TMVar
+  -- make Map ClientName Messages
+  -- map sendMessage over above Map
+  return ()
+  
   

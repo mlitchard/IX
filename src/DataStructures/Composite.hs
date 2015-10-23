@@ -78,7 +78,7 @@ data Client = Client
   }
 data Parameters = Parameters 
   { input        :: AddHandler [UAC] -- All user input per tick
-  , output       :: TChan GameState  -- 
+  , output       :: TMVar GameState  -- 
   , initMaps     :: InitMaps         -- provides initial states
   , tick         :: AddHandler ()    -- provides heartbeat
   , playerRolls  :: [PInt]           -- infitnite lists for die rolls
