@@ -64,11 +64,11 @@ data SMessage                          -- Server Messages
   deriving Show
 
 data Server = Server
-  { clients         :: TVar (M.Map ClientName Client)
-  , clientNames     :: TVar (M.Map ClientName AID) -- for client side
-  , gameState_TMVar :: TMVar GameState
-  , commandChan     :: TChan [UAC]
-  , gameon          :: TVar Bool
+  { clients_TVar          :: TVar (M.Map ClientName Client)
+  , clientNames_TVar      :: TVar (M.Map ClientName AID) -- for client side
+  , gameState_TMVar       :: TMVar GameState
+  , commandChan_TChan     :: TChan [UAC]
+  , gameon_TVar           :: TVar Bool
   }
 
 data Client = Client

@@ -47,11 +47,11 @@ newServer = do
   go  <- newTVarIO False
   return 
     Server { 
-       clients         = cs
-     , clientNames     = cns -- client sode mapping names to aid
-     , gameState_TMVar = gs
-     , commandChan     = cc
-     , gameon          = go
+       clients_TVar      = cs
+     , clientNames_TVar  = cns -- client sode mapping names to aid
+     , gameState_TMVar   = gs
+     , commandChan_TChan = cc
+     , gameon_TVar       = go
     }
 
 readName :: Server -> AppData -> ConduitM BS.ByteString BS.ByteString IO Client
@@ -75,22 +75,22 @@ readName server app = go
 
 checkAddClient :: Server -> ClientName -> AppData -> IO (Maybe Client)
 checkAddClient server@Server{..} name app = atomically $ do
-  clientmap <- readTVar clients
+  clientmap <- readTVar clients_TVar
   if M.member name clientmap then
     return Nothing
   else do
-    camap  <- readTVar clientNames -- maps aid to name
+    camap  <- readTVar clientNames_TVar -- maps aid to name
     let aid = AID (T.pack $ show $ (((M.size camap) -1) + 100))
     client <- newClient name app
-    writeTVar clients (M.insert name client clientmap)
-    writeTVar clientNames    (M.insert name aid camap)
+    writeTVar clients_TVar (M.insert name client clientmap)
+    writeTVar clientNames_TVar (M.insert name aid camap)
     let c_msg = BS.pack (show aid ++ " has connected")
     broadcast server  (Notice (name <++> c_msg))
     return (Just client)
 
 broadcast :: Server -> SMessage -> STM ()
 broadcast Server{..} msg = do
-  clientmap <- readTVar clients
+  clientmap <- readTVar clients_TVar
   mapM_ (\client -> sendMessage client msg) (M.elems clientmap)
 
 runClient :: ResumableSource IO BS.ByteString -> Server -> Client -> IO ()
@@ -101,10 +101,10 @@ runClient clientSource server client@Client{..} =
 
 removeClient :: Server -> Client -> IO ()
 removeClient server@Server{..} client@Client{..} = atomically $ do
-  client_names <- (readTVar clientNames)
+  client_names <- (readTVar clientNames_TVar)
   let aid = fromJustNote clientFail (M.lookup clientName client_names)
-  modifyTVar' clients (M.delete clientName)
-  modifyTVar' clientNames (M.filter (== aid))
+  modifyTVar' clients_TVar (M.delete clientName)
+  modifyTVar' clientNames_TVar (M.filter (== aid))
   broadcast server $ Notice (clientName <++> " has disconnected")
   where
     clientFail = "removeClient failed to find aid " ++
@@ -116,7 +116,7 @@ sendMessage Client{..} msg = writeTMChan clientChan msg
 
 listClients :: Server -> STM [ClientName]
 listClients Server{..} = do
-  c <- readTVar clients
+  c <- readTVar clients_TVar
   return $ M.keys c
 
 newClient :: ClientName -> AppData -> STM Client
@@ -129,7 +129,7 @@ newClient name app = do
 
 sendToName :: Server -> ClientName -> SMessage -> STM Bool
 sendToName server@Server{..} name msg = do
-  clientmap <- readTVar clients
+  clientmap <- readTVar clients_TVar
   case M.lookup name clientmap of
       Nothing -> return False
       Just client -> sendMessage client msg >> return True
@@ -184,22 +184,21 @@ handleMessage server client@Client{..} = awaitForever $ \case
 (<++>) = BS.append
 
 gameManager server@Server{..} = do
-  gameStarted <- atomically (readTVar gameon)
-  anMap       <- atomically (readTVar clientNames)
-  aids        <- atomically (M.elems <$> readTVar clientNames)
+  gameStarted <- atomically (readTVar gameon_TVar)
+  anMap       <- atomically (readTVar clientNames_TVar)
+  let aids = M.elems anMap
   if gameStarted == True then
     return False -- code smell
   else do
     let anMap_keys = M.keys anMap
-        --newMaps    = initMaps anMap anMap_keys
         initMaps   =
           InitMaps {
               aMap = initAmap anMap  
             , pMap = initPmap aids
             , lMap = initLmap aids
           } 
-    _ <- (gameloop commandChan gameState_TMVar initMaps)
-    _ <- atomically (swapTVar gameon True) 
+    _ <- (gameloop commandChan_TChan gameState_TMVar initMaps)
+    _ <- atomically (swapTVar gameon_TVar True) 
     forkIO (atomically $ responseManager server)
     return True
 
@@ -210,10 +209,18 @@ commandManager Server{..} (GCommand c_name msg) =
        Nothing      -> return "Invalid Command"
 
 responseManager :: Server -> STM ()
-responseManager Server{..} = forever $ do
-  g_state <- takeTMVar gameState_TMVar
-  -- make Map ClientName Messages
+responseManager server@Server{..} = forever $ do
+  (GameState (AgentMap a_map) _) <- takeTMVar gameState_TMVar
+-- foldrWithKey :: (k -> a -> b -> b) -> b -> Map k a -> b
+  let init_m_map = M.empty :: M.Map ClientName SMessage 
+      m_map      = M.foldr mkMsgMap init_m_map a_map 
+ 
+  -- make Map ClientName SMessage
   -- map sendMessage over above Map
   return ()
   
-  
+mkMsgMap :: Agent                     ->
+            M.Map ClientName SMessage ->
+            M.Map ClientName SMessage
+mkMsgMap Player{..} sm_map = 
+   
