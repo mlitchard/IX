@@ -6,9 +6,9 @@ module IX.Reactive.EventNetwork
 import DataStructures.Composite
 import DataStructures.Atomic
 import IX.Reactive.Input
-import IX.Reactive.Utils (timer,mkRoll,asIS,asIS_M,asIS_MM)
+import IX.Reactive.Utils (clearBuffer,timer,mkRoll,asIS,asIS_M,asIS_MM)
 import IX.Universe.Utils (intToPInt,nextPlayerRoll)
-import IX.Reactive.Output (writeOut)
+import IX.Reactive.Output (writeOut,writeOut_Debug)
 import IX.Universe.Output (updateAMap)
 import IX.Universe.Input
 import IX.Universe.Market (nextMarketRolls,adjustMarket)
@@ -25,9 +25,9 @@ import System.Random
 import qualified Data.Map.Strict as M
 
 
-gameloop :: TChan [UAC]       ->
-            TMVar GameState   ->
-            InitMaps          ->
+gameloop :: TChan UAC       ->
+            TMVar GameState ->
+            InitMaps        ->
             IO ()
 gameloop commandChannel gsChannel initMaps' = do
   (addCommandEvent,fireCommand) <- newAddHandler
@@ -64,15 +64,15 @@ makeNetworkDescription params = mdo
 
 
        -- UAC to VAC means the elimination of non-existent AIDs
-      eValidated :: Event [VAC]
+      eValidated :: Event VAC
       eValidated = toVAC <$> filterApply (agentExists <$> bAgentMap) eInput
 
 -- eClearBuffer happens when eBuffer happens
-      eClearBuffer :: Event [VAC]
-      eClearBuffer = [] <$ eBuffer
+--      eClearBuffer :: Event VAC
+      eClearBuffer = Clear <$ eTick
 
 -- eBuffer happens when eTick happens 
-      eBuffer ::Event [VAC]
+      eBuffer ::Event BufferMap
       eBuffer = bBuffer <@ eTick
 
       eMove   :: Event (Maybe (M.Map AID ToPlanetName))
@@ -84,9 +84,9 @@ makeNetworkDescription params = mdo
       eAgentMap = updateAMap <$> eAInput
 -- bBuffer populated by eValidated and emptied by eClearOut
 --      bBuffer :: Behavior [VAC]
-  bBuffer         <- accumB []     $ 
-                     manageBuffer <$>
-                     unionWith (++) eValidated eClearBuffer
+  bBuffer         <- accumB (BufferMap (M.empty :: M.Map AID VAC))  $ 
+                     manageBuffer                  <$>
+                     unionWith (clearBuffer) eValidated eClearBuffer
 
 --      bRandom :: DieRolls 
   bRandom         <- accumB playerR $ nextPlayerRoll <$ eAInput
@@ -126,6 +126,7 @@ makeNetworkDescription params = mdo
                    bAgentMap  <*>
                    bPlanetMap <@
                    eTick
+  reactimate $ (writeOut_Debug gsChannel) <$> eMove
   reactimate $ (writeOut gsChannel) <$> eGameState
 
 

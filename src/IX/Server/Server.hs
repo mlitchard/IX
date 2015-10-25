@@ -4,6 +4,7 @@ module IX.Server.Server
   (server)
   where
 
+import           Debug.Trace
 import           DataStructures.Composite
 import           DataStructures.Atomic
 import           IX.Universe.Input
@@ -15,6 +16,7 @@ import           Data.Functor ((<$>))
 import           Data.Conduit.TMChan
 import           Control.Concurrent.STM
 import qualified Data.Map.Strict       as M
+import qualified Data.List             as L
 import qualified Data.Text             as T
 import           Control.Monad.IO.Class
 import           Data.Conduit.Network
@@ -199,28 +201,42 @@ gameManager server@Server{..} = do
           } 
     _ <- (gameloop commandChan_TChan gameState_TMVar initMaps)
     _ <- atomically (swapTVar gameon_TVar True) 
-    forkIO (atomically $ responseManager server)
+    forkIO $ atomically (responseManager server)
     return True
 
 commandManager Server{..} (GCommand c_name msg) = 
   let read = (readMay $ BS.unpack msg) :: Maybe Command
   in case read of
-       Just command -> return $ show command
+       Just command -> 
+         do
+            c_map <- readTVar clientNames_TVar
+            let 
+                aid = fromJustNote aidFail (M.lookup c_name c_map)
+                uac = UAC (PlayerCommand command aid)
+            writeTChan commandChan_TChan uac
+            return $ show command
+            where
+              aidFail = "comandManager could not find " ++
+                        (show c_name)                   ++
+                        "in client map"
        Nothing      -> return "Invalid Command"
+      
 
 responseManager :: Server -> STM ()
 responseManager server@Server{..} = forever $ do
-  (GameState (AgentMap a_map) _) <- takeTMVar gameState_TMVar
--- foldrWithKey :: (k -> a -> b -> b) -> b -> Map k a -> b
-  let init_m_map = M.empty :: M.Map ClientName SMessage 
-      m_map      = M.foldr mkMsgMap init_m_map a_map 
- 
-  -- make Map ClientName SMessage
-  -- map sendMessage over above Map
-  return ()
+  (GameState (AgentMap a_map) _) <- (takeTMVar gameState_TMVar)
+  let s_messages = M.elems $ M.map mkMsgMap a_map
+  mapM_ (response server) s_messages
   
-mkMsgMap :: Agent                     ->
-            M.Map ClientName SMessage ->
-            M.Map ClientName SMessage
-mkMsgMap Player{..} sm_map = 
-   
+  return ()
+
+response :: Server -> (ClientName,SMessage) -> STM ()
+response server (c_name,s_msg) = do
+  _ <- sendToName server c_name s_msg
+  traceShowM (show s_msg)
+  return () 
+  
+mkMsgMap :: Agent -> (ClientName,SMessage)
+mkMsgMap Player{..} =
+  let msg_ = GTell aName $ BS.pack $ unlines (map show msg)
+  in (aName,msg_)

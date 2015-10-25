@@ -29,39 +29,38 @@ import qualified Data.Map.Strict as M
 -- The idea is that only legal commands are allowed, so probably needs AgentMap
 -- to assess this
 
-toVAC :: [UAC] -> [VAC]
-toVAC [(UAC pCommand)] = [VAC pCommand]
-toVAC _                = []
+toVAC :: UAC -> VAC
+toVAC (UAC pCommand) = VAC pCommand
 
 
 -- used to prevent dead players of sending commands to the game
-agentExists :: AgentMap -> [UAC] -> Bool
-agentExists (AgentMap aMap') [UAC (PlayerCommand _ aid)] =
+agentExists :: AgentMap -> UAC -> Bool
+agentExists (AgentMap aMap') (UAC (PlayerCommand _ aid)) =
    let mAGENT = M.lookup aid aMap'
    in case mAGENT of
       (Just (Dead _)) -> False
       (Just _)        -> True
       Nothing         -> False
-agentExists (AgentMap _) [] = False
-agentExists (AgentMap _) (UAC (PlayerCommand _ _) : (_ : _)) = False
 
 
 
--- quad time alert
-manageBuffer :: [VAC] -> [VAC] -> [VAC]
-manageBuffer [] _ = []
-manageBuffer incoming acc = acc ++ incoming
+manageBuffer :: VAC -> BufferMap -> BufferMap
+manageBuffer Clear _ = BufferMap (M.empty :: M.Map AID VAC)
+manageBuffer vac@(VAC (PlayerCommand _ aid)) (BufferMap acc) = 
+  BufferMap $M.insert aid vac acc 
 
 
 
-whichLoc :: LocationMap -> [VAC] -> (Maybe UPlanetComm,Maybe HSpaceComm)
-whichLoc (LocationMap lMap) vacs@(_:_) =
-   let pComm :: [PCommand]
-       hComm :: [HCommand]
-       (pComm, hComm) = partitionEithers $ map (`sortLoc` lMap) vacs
-   in (Just (UPlanetComm pComm), Just (HSpaceComm hComm))
-
-whichLoc _ [] = (Nothing,Nothing)
+whichLoc :: LocationMap -> BufferMap -> (Maybe UPlanetComm,Maybe HSpaceComm)
+whichLoc (LocationMap lMap) (BufferMap vacs) =
+  case (M.null vacs) of
+    True -> (Nothing,Nothing)
+    False -> let pComm :: [PCommand]
+                 hComm :: [HCommand]
+                 (pComm, hComm) = partitionEithers $
+                                  M.elems          $
+                                  M.map (`sortLoc` lMap) vacs
+             in (Just (UPlanetComm pComm), Just (HSpaceComm hComm))
 
 sortLoc :: VAC -> M.Map AID Location -> Either PCommand HCommand
 sortLoc vac@(VAC (PlayerCommand  _ aid)) locs =

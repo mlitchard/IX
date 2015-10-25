@@ -5,7 +5,8 @@ module IX.Reactive.Utils
    ,fromLeft
    ,asIS
    ,asIS_M
-   ,asIS_MM)
+   ,asIS_MM
+   ,clearBuffer)
    
    where
 
@@ -14,9 +15,13 @@ import DataStructures.Composite
 import IX.Universe.Utils (intToPInt)
 import Control.Concurrent (threadDelay)
 import Control.Applicative ((<$>),(<*>))
+import Reactive.Banana
 import System.Random
 import qualified Data.Map.Strict as M
 
+
+clearBuffer :: VAC -> VAC -> VAC
+clearBuffer validated clear = clear
 timer :: TimeOut -> IO ()
 timer (PInt ms) = do
    threadDelay ms

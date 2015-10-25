@@ -1,6 +1,7 @@
 module DataStructures.Composite
    ( ResourceMap (..)
    , Resource (..)
+   , BufferMap (..)
    , AgentMap(..)
    , ResultMap (..)
    , DAgentMap(..)
@@ -67,7 +68,7 @@ data Server = Server
   { clients_TVar          :: TVar (M.Map ClientName Client)
   , clientNames_TVar      :: TVar (M.Map ClientName AID) -- for client side
   , gameState_TMVar       :: TMVar GameState
-  , commandChan_TChan     :: TChan [UAC]
+  , commandChan_TChan     :: TChan UAC
   , gameon_TVar           :: TVar Bool
   }
 
@@ -76,8 +77,10 @@ data Client = Client
   , clientChan     :: TMChan SMessage
   , clientApp      :: AppData
   }
+
+
 data Parameters = Parameters 
-  { input        :: AddHandler [UAC] -- All user input per tick
+  { input        :: AddHandler UAC -- All user input per tick
   , output       :: TMVar GameState  -- 
   , initMaps     :: InitMaps         -- provides initial states
   , tick         :: AddHandler ()    -- provides heartbeat
@@ -99,10 +102,11 @@ data InitMaps = InitMaps
 --  , gameState   :: TChan GameState --       
 --  }
 
-type Buffer = Event [VAC] -- the list of commands to be
+type Buffer = Event BufferMap -- the list of commands to be
                                 --  processed in a tick
 type DieRolls = Behavior [PInt]
 
+data BufferMap   = BufferMap (M.Map AID VAC)
 data LocationMap = LocationMap (M.Map AID Location) deriving Show
 data ResourceMap = ResourceMap (M.Map ResourceName Resource) deriving Show
 data PlanetMap = PlanetMap (M.Map PlanetName Planet) deriving (Show)
@@ -218,7 +222,10 @@ data PlanetComm = PlanetComm ![(PlanetName,PCommand)] deriving Show
 data PlayerCommand = PlayerCommand Command AID deriving (Eq,Ord,Show)
 
 -- Validated Agent Command
-data VAC = VAC PlayerCommand deriving (Eq,Ord,Show)
+data VAC = VAC PlayerCommand
+         | Clear -- for clearing buffer
+         deriving (Eq,Ord,Show)
+
 -- Unvalidated Agent Command
 data UAC = UAC PlayerCommand deriving (Show)
 
