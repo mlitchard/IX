@@ -17,14 +17,15 @@ import Control.Concurrent (threadDelay)
 import Control.Applicative ((<$>),(<*>))
 import Reactive.Banana
 import System.Random
+import Debug.Trace
 import qualified Data.Map.Strict as M
 
 
 clearBuffer :: VAC -> VAC -> VAC
-clearBuffer validated clear = clear
+clearBuffer validated clear = trace ("clearBuffer called") clear
 timer :: TimeOut -> IO ()
-timer (PInt ms) = do
-   threadDelay ms
+timer ms = do
+   trace ("timer called") threadDelay ms
 
 mkRoll :: StdGen -> [PInt]
 mkRoll gen = map intToPInt $ randomRs (1,100) gen

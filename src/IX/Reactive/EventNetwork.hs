@@ -1,4 +1,4 @@
-{-# LANGUAGE ScopedTypeVariables, RecursiveDo #-}
+{-# LANGUAGE ScopedTypeVariables, RecursiveDo, RecordWildCards #-}
 module IX.Reactive.EventNetwork
    (gameloop) where
 
@@ -44,7 +44,6 @@ gameloop commandChannel gsChannel initMaps' = do
       }
 
   networkDescr <- compile $ makeNetworkDescription params
-  appendFile "gameloop.txt" "gameloop called\n"
   actuate networkDescr
   _ <- forkIO $ forever (atomically (readTChan commandChannel) >>= fireCommand)
   _ <- forkIO $ forever $ (timer tickSize) >>= tickSink
@@ -69,7 +68,7 @@ makeNetworkDescription params = mdo
 
 -- eClearBuffer happens when eBuffer happens
 --      eClearBuffer :: Event VAC
-      eClearBuffer = Clear <$ eTick
+      eClearBuffer = Clear <$ eBuffer
 
 -- eBuffer happens when eTick happens 
       eBuffer ::Event BufferMap
@@ -85,8 +84,8 @@ makeNetworkDescription params = mdo
 -- bBuffer populated by eValidated and emptied by eClearOut
 --      bBuffer :: Behavior [VAC]
   bBuffer         <- accumB (BufferMap (M.empty :: M.Map AID VAC))  $ 
-                     manageBuffer                  <$>
-                     unionWith (clearBuffer) eValidated eClearBuffer
+                     manageBuffer                  <$> eValidated
+--                     unionWith (clearBuffer) eValidated eClearBuffer
 
 --      bRandom :: DieRolls 
   bRandom         <- accumB playerR $ nextPlayerRoll <$ eAInput
@@ -96,7 +95,7 @@ makeNetworkDescription params = mdo
 
   (eLocationMap,bLocationMap) <- mapAccum initLMs                             $
                                  (manageTravel <$> bPlanetMap <*> bAgentMap) <@>
-                                 unionWith asIS_MM eHypTravel' eMove 
+                                 unionWith mappend eHypTravel' eMove 
   let eHypTravel' = eHypTravel eGameState
 
   bMarketRolls <- accumB marketR   $ 
@@ -126,10 +125,10 @@ makeNetworkDescription params = mdo
                    bAgentMap  <*>
                    bPlanetMap <@
                    eTick
-  reactimate $ (writeOut_Debug gsChannel) <$> eMove
+  reactimate $ (writeOut_Debug gsChannel) <$> eTick
   reactimate $ (writeOut gsChannel) <$> eGameState
 
 
 
-tickSize :: PInt
-tickSize = intToPInt 10
+tickSize :: Int
+tickSize = 10

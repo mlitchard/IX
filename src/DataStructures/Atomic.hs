@@ -44,11 +44,11 @@ import qualified Data.ByteString.Char8 as BS
 type ClientName = BS.ByteString
 
 newtype Name = Name Text deriving (Eq,Show)
-newtype PInt = PInt Int deriving Read -- Wrapper for Integers that can never 
+newtype PInt = PInt Int deriving (Read) -- Wrapper for Integers that can never 
                                       -- be negative, for truncated subtraction
                                       -- operations
 type DieRoll = PInt
-type TimeOut = PInt
+type TimeOut = Int
 newtype ToPlanetName   = ToPlanetName PlanetName deriving (Ord,Eq,Show,Read)
 newtype FromPlanetName = FromPlanetName PlanetName deriving (Ord,Eq,Show,Read)
 data PlanetName

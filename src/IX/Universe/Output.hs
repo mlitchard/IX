@@ -18,15 +18,15 @@ import Data.List (foldl')
 import Data.List.Utils (addToAL)
 import Safe (fromJustNote)
 
+import Debug.Trace
 
 updateAMap :: [DAgentMap] -> AgentMap -> AgentMap
 --updateAMap ((DAgentMap (SubAgentMap agts)) (AgentMap aMap) =
 updateAMap [] agts =
-  agts
+  trace ("empty list updateAMap " ++ (show agts))  agts
 
 updateAMap aMapList agts =
---  AgentMap $ M.foldlWithKey updateAgents aMap agts
-  foldl toAGT agts aMapList
+  trace ("updateAMap says " ++ (show agts)) foldl toAGT agts aMapList
     where
       toAGT :: AgentMap -> DAgentMap -> AgentMap
       toAGT (AgentMap a_map) (DAgentMap (SubAgentMap (a_map'))) =
@@ -97,7 +97,7 @@ updatePmap (LocationMap l_map) (AgentMap a_map) (PlanetMap p_map) =
 
 lookToAgt :: AgentMap -> M.Map AID Result -> [Maybe DAgentMap]
 lookToAgt (AgentMap aMap) resList =
-  snd `fmap` M.toList (M.mapWithKey processLook resList)
+  trace (" lookToAGT says " ++ (show aMap)) snd `fmap` M.toList (M.mapWithKey processLook resList)
   where
     processLook aid (Looked res ship) =
       let o_agent = fromJustNote aAgentFail (M.lookup aid aMap)

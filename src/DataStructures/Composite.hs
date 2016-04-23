@@ -21,6 +21,7 @@ module DataStructures.Composite
    , HyperSpace (..)
    , LocationMap (..)
    , Location (..)
+   , LocationData (..)
    , PlanetMap (..)
    , UPlanetComm (..)
    , HSpaceComm (..)
@@ -106,7 +107,7 @@ type Buffer = Event BufferMap -- the list of commands to be
                                 --  processed in a tick
 type DieRolls = Behavior [PInt]
 
-data BufferMap   = BufferMap (M.Map AID VAC)
+data BufferMap   = BufferMap (M.Map AID VAC) deriving Show
 data LocationMap = LocationMap (M.Map AID Location) deriving Show
 data ResourceMap = ResourceMap (M.Map ResourceName Resource) deriving Show
 data PlanetMap = PlanetMap (M.Map PlanetName Planet) deriving (Show)
@@ -208,6 +209,13 @@ data GameMaps = GameMaps {
   ,bPMap  :: Behavior PlanetMap
 }
 
+data LocationData = LocationData {
+   init_lm   :: LocationMap
+  ,b_pmap    :: Behavior (PlanetMap)
+  ,b_amap    :: Behavior (AgentMap)
+  ,eh_travel :: Event (Maybe (M.Map AID ToPlanetName))
+  ,e_move    :: Event (Maybe (M.Map AID ToPlanetName))
+}
 data GameState = GameState !AgentMap !PlanetMap deriving Show
 newtype HCommand = HCommand VAC deriving Show
 newtype PCommand = PCommand VAC deriving Show

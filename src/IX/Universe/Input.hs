@@ -18,6 +18,7 @@ import IX.Universe.Market (evalMarket,evalCommerce)
 import IX.Universe.Combat (evalZap)
 import IX.Universe.Utils (intToPInt,getPlanet)
 
+import Debug.Trace
 import Safe (fromJustNote)
 import Data.Either (partitionEithers)
 import Data.List (sortBy)
@@ -45,22 +46,23 @@ agentExists (AgentMap aMap') (UAC (PlayerCommand _ aid)) =
 
 
 manageBuffer :: VAC -> BufferMap -> BufferMap
-manageBuffer Clear _ = BufferMap (M.empty :: M.Map AID VAC)
+manageBuffer Clear _ = trace ("manager buffer used Clear") (BufferMap (M.empty :: M.Map AID VAC))
 manageBuffer vac@(VAC (PlayerCommand _ aid)) (BufferMap acc) = 
-  BufferMap $M.insert aid vac acc 
+  trace ("calling manageBuffer with " ++ (show vac) ++ " " ++ (show acc)) (BufferMap $ M.insert aid vac acc) 
 
 
 
 whichLoc :: LocationMap -> BufferMap -> (Maybe UPlanetComm,Maybe HSpaceComm)
 whichLoc (LocationMap lMap) (BufferMap vacs) =
   case (M.null vacs) of
-    True -> (Nothing,Nothing)
+    True -> trace ("whichLoc says buffer is empty") (Nothing,Nothing)
     False -> let pComm :: [PCommand]
                  hComm :: [HCommand]
                  (pComm, hComm) = partitionEithers $
                                   M.elems          $
                                   M.map (`sortLoc` lMap) vacs
-             in (Just (UPlanetComm pComm), Just (HSpaceComm hComm))
+             in trace ("whichLoc " ++ (show pComm) ++ " " ++ (show hComm))
+                      (Just (UPlanetComm pComm), Just (HSpaceComm hComm))
 
 sortLoc :: VAC -> M.Map AID Location -> Either PCommand HCommand
 sortLoc vac@(VAC (PlayerCommand  _ aid)) locs =
@@ -87,7 +89,7 @@ evalPComm p_map
           (dRoll:_)
           pCommands =
 --          (p_name,(PCommand (VAC (PlayerCommand comm aid)))) =
-  map evalPComm' pCommands
+  trace ("evalPComm says " ++ (show pCommands) ) map evalPComm' pCommands
   where
     evalPComm' :: (PlanetName, PCommand) ->
                   Either (AID, Result) (AID, ToPlanetName)
@@ -176,7 +178,7 @@ findPlanetBound aid (Location (Left (pName,_))) = Just pName
 findPlanetBound _ _                             = Nothing
 
 doLook :: PlanetName -> Agent -> Result
-doLook p_name agt = Looked (Left p_name) $ ship agt
+doLook p_name agt = trace ("called Look") Looked (Left p_name) $ ship agt
 
 -- the result of evalPComm is either the consequence of an action
 -- -- on another player or a resource on the planet (or an impossible command), 

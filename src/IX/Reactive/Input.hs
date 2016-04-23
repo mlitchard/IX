@@ -68,14 +68,14 @@ playerInput gMaps bDieRolls eGameState eBuffer =
 --                                  eCommerce   `unionWith`
 --                                  eLocalMarket `unionWith`
 --                                  eCError)
-       eAInput =
-         catMaybes <$> 
-         (unionWith (++)
-         (unionWith (++) ( unionWith (++) eClearOut eLook )  
-                         ( unionWith (++) eDamage eTransition ))
+       eAInput = catMaybes <$> eLook
+--         catMaybes <$> 
+--         (unionWith (++)
+--         (unionWith (++) eLook   
+--                         ( unionWith (++) eDamage eTransition ))
   
-         (unionWith (++) ( unionWith (++) eChangeShip eCommerce )
-                         ( unionWith (++) eLocalMarket eCError )))  
+--         (unionWith (++) ( unionWith (++) eChangeShip eCommerce )
+--                         ( unionWith (++) eLocalMarket eCError )))  
        ePlanetAction = psAction actions
        eHypAction    = hsAction actions
        eMove = moveAction actions
