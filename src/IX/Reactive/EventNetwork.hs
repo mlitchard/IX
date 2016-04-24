@@ -83,8 +83,8 @@ makeNetworkDescription params = mdo
       eAgentMap = updateAMap <$> eAInput
 -- bBuffer populated by eValidated and emptied by eClearOut
 --      bBuffer :: Behavior [VAC]
-  bBuffer         <- accumB (BufferMap (M.empty :: M.Map AID VAC))  $ 
-                     manageBuffer                  <$> eValidated
+  bBuffer <- accumB (BufferMap (M.empty :: M.Map AID VAC))  $ 
+             manageBuffer <$> unionWith (clearBuffer) eValidated eClearBuffer
 --                     unionWith (clearBuffer) eValidated eClearBuffer
 
 --      bRandom :: DieRolls 
