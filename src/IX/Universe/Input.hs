@@ -89,7 +89,7 @@ evalPComm p_map
           (dRoll:_)
           pCommands =
 --          (p_name,(PCommand (VAC (PlayerCommand comm aid)))) =
-  trace ("evalPComm says " ++ (show pCommands) ) map evalPComm' pCommands
+  map evalPComm' pCommands
   where
     evalPComm' :: (PlanetName, PCommand) ->
                   Either (AID, Result) (AID, ToPlanetName)

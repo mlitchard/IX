@@ -233,7 +233,6 @@ responseManager server@Server{..} = forever $ do
 response :: Server -> (ClientName,SMessage) -> STM ()
 response server (c_name,s_msg) = do
   _ <- sendToName server c_name s_msg
-  traceShowM (show s_msg)
   return () 
   
 mkMsgMap :: Agent -> (ClientName,SMessage)

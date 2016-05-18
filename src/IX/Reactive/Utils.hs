@@ -22,10 +22,10 @@ import qualified Data.Map.Strict as M
 
 
 clearBuffer :: VAC -> VAC -> VAC
-clearBuffer validated clear = trace ("clearBuffer called") clear
+clearBuffer validated clear = clear
 timer :: TimeOut -> IO ()
 timer ms = do
-   trace ("timer called") threadDelay ms
+   threadDelay ms
 
 mkRoll :: StdGen -> [PInt]
 mkRoll gen = map intToPInt $ randomRs (1,100) gen

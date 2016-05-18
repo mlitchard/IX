@@ -18,19 +18,11 @@ import IX.Universe.Market
 
 import Data.Either (isLeft,isRight,lefts,rights)
 import Data.Maybe
-import Reactive.Banana (apply
-                       ,unionWith
-                       ,Behavior
-                       ,Event
-                       ,filterJust
-                       ,filterE
-                       ,(<@)
-                       ,(<@>)
-                       ,(<$)
-                       ,(<$>)
-                       ,(<*>))
+import Reactive.Banana (apply,unionWith,Behavior,Event,filterJust,filterE
+                       ,(<@),(<@>),(<$),(<$>),(<*>))
 import qualified Data.Map.Strict as M
 import Prelude hiding (unionWith)
+
 
 playerInput :: GameMaps        ->
                DieRolls        ->
